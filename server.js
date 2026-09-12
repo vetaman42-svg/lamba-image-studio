@@ -41,7 +41,9 @@ app.post('/api/generate', upload.single('image'), async (req, res) => {
     });
 
     if (!output) throw new Error('Модель не вернула изображение.');
-    const data = Buffer.from(await output.arrayBuffer());
+    const data = Buffer.from(await output.blob().then(b => b.arrayBuffer()));
+
+                            
     res.set('Content-Type', 'image/jpeg');
     res.set('Cache-Control', 'no-store');
     res.send(data);
