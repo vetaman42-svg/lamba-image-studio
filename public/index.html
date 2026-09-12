@@ -42,7 +42,7 @@ textarea{width:100%;min-height:105px;resize:vertical;background:#10141c;color:#f
 <section class="card"><h2>Результат</h2><div class="preview" id="preview"><div class="empty"><div class="icon">🖼️</div><div>Здесь появится сгенерированное изображение</div></div></div></section>
 </div></div>
 <script>
-const API_BASE=localStorage.getItem('lamba_api_url')||'';
+const     const API_BASE='';
 const file=document.getElementById('file'),source=document.getElementById('source'),dropText=document.getElementById('dropText');
 const status=document.getElementById('status'),prompt=document.getElementById('prompt'),preview=document.getElementById('preview'),gen=document.getElementById('generate');
 let selectedStyle='спортивный образ';
@@ -51,11 +51,11 @@ document.querySelectorAll('.chip').forEach(b=>b.onclick=()=>{document.querySelec
 document.getElementById('clear').onclick=()=>{file.value='';source.hidden=true;dropText.hidden=false;status.textContent='';preview.innerHTML='<div class="empty"><div class="icon">🖼️</div><div>Здесь появится сгенерированное изображение</div></div>'};
 gen.onclick=async()=>{
  if(!file.files?.[0]){status.textContent='Сначала выбери исходное фото.';return}
- if(!API_BASE){status.textContent='⚙️ Не настроен адрес AI-сервера. Открой README и укажи его один раз.';return}
+ if(!
  gen.disabled=true;status.textContent='⏳ Отправляю фото на AI…';
  const fd=new FormData();fd.append('image',file.files[0]);fd.append('style',selectedStyle);fd.append('prompt',prompt.value);
  try{
-  const r=await fetch(API_BASE.replace(/\/$/,'')+'/api/generate',{method:'POST',body:fd});
+  conconst r=await fetch('/api/generate',{method:'POST',body:fd});
   const data=await r.json().catch(()=>({}));
   if(!r.ok)throw new Error(data.error||('HTTP '+r.status));
   if(!data.image)throw new Error('Сервер не вернул изображение.');
