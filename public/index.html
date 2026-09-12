@@ -46,7 +46,7 @@ const API_BASE='';
 const file=document.getElementById('file'),source=document.getElementById('source'),dropText=document.getElementById('dropText');
 const status=document.getElementById('status'),prompt=document.getElementById('prompt'),preview=document.getElementById('preview'),gen=document.getElementById('generate');
 let selectedStyle='спортивный образ';
-file.onchange=()=>{const f=file.files?.[0];if(!f)return;source.src=URL.createObjectURL(f);source.hidden=false;dropText.hidden=true;status.textContent='Фото загружено.'};
+file.file.onchange=()=>{const f=file.files&&file.files[0];if(!f)return;source.src=URL.createObjectURL(f);source.hidden=false;dropText.hidden=true;status.textContent='Фото выбрано.';};if(!f)return;source.src=URL.createObjectURL(f);source.hidden=false;dropText.hidden=true;status.textContent='Фото загружено.'};
 document.querySelectorAll('.chip').forEach(b=>b.onclick=()=>{document.querySelectorAll('.chip').forEach(x=>x.classList.remove('active'));b.classList.add('active');selectedStyle=b.dataset.style});
 document.getElementById('clear').onclick=()=>{file.value='';source.hidden=true;dropText.hidden=false;status.textContent='';preview.innerHTML='<div class="empty"><div class="icon">🖼️</div><div>Здесь появится сгенерированное изображение</div></div>'};
 gen.onclick=async()=>{
