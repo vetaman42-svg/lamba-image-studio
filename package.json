@@ -1,1 +1,8 @@
-{"name":"lamba-image-studio","version":"0.3.0","type":"module","scripts":{"start":"node server.js"},"dependencies":{"cors":"latest","dotenv":"latest","express":"latest","multer":"latest","openai":"latest"}}
+{
+  "name": "lamba-remote-image-editor",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {"start": "node server.js"},
+  "dependencies": {"express": "^5.1.0", "multer": "^2.0.2", "replicate": "^1.0.0"}
+}
