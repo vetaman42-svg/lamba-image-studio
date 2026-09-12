@@ -51,7 +51,7 @@ document.querySelectorAll('.chip').forEach(b=>b.onclick=()=>{document.querySelec
 document.getElementById('clear').onclick=()=>{file.value='';source.hidden=true;dropText.hidden=false;status.textContent='';preview.innerHTML='<div class="empty"><div class="icon">🖼️</div><div>Здесь появится сгенерированное изображение</div></div>'};
 gen.onclick=async()=>{
  if(!file.files?.[0]){status.textContent='Сначала выбери исходное фото.';return}
- if(!
+ if(
  gen.disabled=true;status.textContent='⏳ Отправляю фото на AI…';
  const fd=new FormData();fd.append('image',file.files[0]);fd.append('style',selectedStyle);fd.append('prompt',prompt.value);
  try{
