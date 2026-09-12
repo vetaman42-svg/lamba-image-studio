@@ -32,7 +32,7 @@ app.post('/api/generate', upload.single('image'), async (req, res) => {
     const output = await replicate.run('black-forest-labs/flux-kontext-pro', {
       input: {
         prompt,
-        input_image: tmp,
+        input_image: req.file.buffer.
         aspect_ratio: 'match_input_image',
         output_format: 'jpg',
         safety_tolerance: 2,
