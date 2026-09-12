@@ -1,0 +1,1 @@
+{"name":"lamba-image-studio","version":"0.3.0","type":"module","scripts":{"start":"node server.js"},"dependencies":{"cors":"latest","dotenv":"latest","express":"latest","multer":"latest","openai":"latest"}}
