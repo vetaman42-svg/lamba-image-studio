@@ -222,11 +222,20 @@ gen.onclick=async()=>{
  const fd=new FormData();fd.append('image',file.files[0]);fd.append('style',selectedStyle);fd.append('prompt',prompt.value);
  try{
   const r=await fetch(API_BASE.replace(/\/$/,'')+'/api/generate',{method:'POST',body:fd});
+if(!r.ok){
   const data=await r.json().catch(()=>({}));
-  if(!r.ok)throw new Error(data.error||('HTTP '+r.status));
-  if(!data.image)throw new Error('\u0421\u0435\u0440\u0432\u0435\u0440 \u043d\u0435 \u0432\u0435\u0440\u043d\u0443\u043b \u0438\u0437\u043e\u0431\u0440\u0430\u0436\u0435\u043d\u0438\u0435.');
-  preview.innerHTML='<img alt="\u0421\u0433\u0435\u043d\u0435\u0440\u0438\u0440\u043e\u0432\u0430\u043d\u043d\u044b\u0439 \u0440\u0435\u0437\u0443\u043b\u044c\u0442\u0430\u0442" src="data:image/png;base64,'+data.image+'">';
-  status.textContent=translations[currentLang].done;
+  throw new Error(data.error||('HTTP '+r.status));
+}
+const blob=await r.blob();
+if(!blob.size)throw new Error('Сервер не вернул изображение.');
+const url=URL.createObjectURL(blob);
+preview.innerHTML='<img alt="Сгенерированный результат" src="'+url+'">';
+status.textContent=translations[currentLang].done;
+  con
+  if(
+  if(
+  pre
+  sta
  }catch(e){status.textContent='\u274c '+e.message}
  finally{gen.disabled=false}
 };
