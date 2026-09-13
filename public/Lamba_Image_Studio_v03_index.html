@@ -10,8 +10,8 @@
 .wrap{max-width:1050px;margin:auto;padding:22px 16px 40px}.head{display:flex;justify-content:space-between;align-items:center;margin-bottom:18px}.logo{font-size:24px;font-weight:800}.logo span{color:#a78bfa}.head-actions{display:flex;align-items:center;gap:8px}.lang-btn{width:auto;padding:7px 10px;font-size:12px;font-weight:750;background:#242a37;color:#e8ebf1;border:1px solid var(--border);border-radius:999px;cursor:pointer}.badge{font-size:12px;color:#c4b5fd;background:#251b3e;border:1px solid #49337a;padding:7px 10px;border-radius:999px}
 .grid{display:grid;grid-template-columns:390px 1fr;gap:16px}@media(max-width:760px){.grid{grid-template-columns:1fr}}
 .card{background:#151923eb;border:1px solid var(--border);border-radius:20px;padding:16px;box-shadow:0 12px 40px #0005}h2{font-size:16px;margin:0 0 12px}
-.drop{height:210px;border:1px dashed #4a5365;border-radius:16px;display:flex;align-items:center;justify-content:center;text-align:center;color:var(--muted);overflow:hidden;background:#10141c;cursor:pointer}.drop img{width:100%;height:100%;object-fit:cover}.drop.zoomed{position:fixed;z-index:1000;top:5vh;left:5vw;width:90vw;height:90vh;background:#070910;border:2px solid #8b5cf6;box-shadow:0 20px 80px #000b}.drop.zoomed img{object-fit:contain}.drop.zoomed:after{content:"&#1053;&#1072;&#1078;&#1084;&#1080; &#1077;&#1097;&#1105; &#1088;&#1072;&#1079;, &#1095;&#1090;&#1086;&#1073;&#1099; &#1079;&#1072;&#1082;&#1088;&#1099;&#1090;&#1100;";position:absolute;bottom:12px;left:50%;transform:translateX(-50%);background:#000b;color:#fff;padding:7px 11px;border-radius:999px;font-size:12px;pointer-events:none}.drop strong{color:#fff;display:block;margin-bottom:6px}
-input[type=file]{display:none}.style-picker{margin:10px 0 14px}.style-toggle{display:flex;align-items:center;justify-content:space-between;gap:12px}.styles{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0 0}.styles[hidden]{display:none}.chip{border:1px solid var(--border);background:#11151e;color:#d7dce6;padding:9px 11px;border-radius:12px;cursor:pointer}.chip.active{background:#34205d;border-color:#8b5cf6;color:#fff}
+.drop{height:210px;border:1px dashed #4a5365;border-radius:16px;display:flex;align-items:center;justify-content:center;text-align:center;color:var(--muted);overflow:hidden;background:#10141c;cursor:pointer}.drop img{width:100%;height:100%;object-fit:cover}.drop.zoomed{position:fixed;z-index:1000;top:5vh;left:5vw;width:90vw;height:90vh;background:#070910;border:2px solid #8b5cf6;box-shadow:0 20px 80px #000b}.drop.zoomed img{object-fit:contain}.drop.zoomed:after{content:"\041d\0430\0436\043c\0438 \0435\0449\0451 \0440\0430\0437, \0447\0442\043e\0431\044b \0437\0430\043a\0440\044b\0442\044c";position:absolute;bottom:12px;left:50%;transform:translateX(-50%);background:#000b;color:#fff;padding:7px 11px;border-radius:999px;font-size:12px;pointer-events:none}.drop strong{color:#fff;display:block;margin-bottom:6px}
+input[type=file]{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}.style-picker{margin:10px 0 14px}.style-toggle{display:flex;align-items:center;justify-content:space-between;gap:12px}.styles{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0 0}.styles[hidden]{display:none}.chip{border:1px solid var(--border);background:#11151e;color:#d7dce6;padding:9px 11px;border-radius:12px;cursor:pointer}.chip.active{background:#34205d;border-color:#8b5cf6;color:#fff}
 textarea{width:100%;min-height:105px;resize:vertical;background:#10141c;color:#fff;border:1px solid var(--border);border-radius:14px;padding:12px;font:inherit;outline:none}textarea:focus{border-color:#8b5cf6}
 .row{display:flex;gap:10px;margin-top:10px}.row>*{flex:1}button{width:100%;border:0;border-radius:14px;padding:13px 16px;font-weight:750;font-size:15px;cursor:pointer}.primary{background:linear-gradient(135deg,#8b5cf6,#6366f1);color:#fff}.secondary{background:#242a37;color:#e8ebf1}.primary:disabled,.secondary:disabled{opacity:.55;cursor:wait}
 .preview{min-height:520px;display:flex;align-items:center;justify-content:center;background:#0f131b;border-radius:16px;border:1px solid var(--border);overflow:hidden}.preview img{max-width:100%;max-height:680px;display:block}.empty{text-align:center;color:var(--muted);padding:30px}.empty .icon{font-size:48px;margin-bottom:10px}.status{margin-top:10px;font-size:13px;color:#b7c0cf;min-height:20px}.note{font-size:12px;color:#8f98a8;line-height:1.45;margin-top:12px}
@@ -22,35 +22,35 @@ textarea{width:100%;min-height:105px;resize:vertical;background:#10141c;color:#f
 <div class="head"><div class="logo">Lamba <span>Image Studio</span></div><div class="head-actions"><button class="lang-btn" id="langToggle" type="button">RU / EN</button><div class="badge">v0.3 iPad Ready</div></div></div>
 <div class="grid">
 <section class="card">
-<h2 data-i18n="sourceTitle">1. &#1048;&#1089;&#1093;&#1086;&#1076;&#1085;&#1086;&#1077; &#1092;&#1086;&#1090;&#1086;</h2>
-<label class="drop" id="photoDrop" for="file"><div id="dropText"><strong data-i18n="choosePhoto">&#1053;&#1072;&#1078;&#1084;&#1080;, &#1095;&#1090;&#1086;&#1073;&#1099; &#1074;&#1099;&#1073;&#1088;&#1072;&#1090;&#1100; &#1092;&#1086;&#1090;&#1086;</strong>PNG / JPG / WEBP</div><img id="source" hidden></label>
+<h2 data-i18n="sourceTitle">1. &#x418;&#x441;&#x445;&#x43e;&#x434;&#x43d;&#x43e;&#x435; &#x444;&#x43e;&#x442;&#x43e;</h2>
+<div class="drop" id="photoDrop" role="button" tabindex="0"><div id="dropText"><strong data-i18n="choosePhoto">&#x41d;&#x430;&#x436;&#x43c;&#x438;, &#x447;&#x442;&#x43e;&#x431;&#x44b; &#x432;&#x44b;&#x431;&#x440;&#x430;&#x442;&#x44c; &#x444;&#x43e;&#x442;&#x43e;</strong>PNG / JPG / WEBP</div><img id="source" hidden></div>
 <input id="file" type="file" accept="image/png,image/jpeg,image/webp">
-<h2 style="margin-top:16px" data-i18n="styleTitle">2. &#1054;&#1073;&#1088;&#1072;&#1079;</h2>
+<h2 style="margin-top:16px" data-i18n="styleTitle">2. &#x41e;&#x431;&#x440;&#x430;&#x437;</h2>
 <div class="style-picker">
-<button class="secondary style-toggle" id="styleToggle" type="button"><span id="selectedStyleLabel">&#1057;&#1087;&#1086;&#1088;&#1090;&#1080;&#1074;&#1085;&#1099;&#1081;</span><span id="styleArrow">&#9662;</span></button>
+<button class="secondary style-toggle" id="styleToggle" type="button"><span id="selectedStyleLabel">&#x421;&#x43f;&#x43e;&#x440;&#x442;&#x438;&#x432;&#x43d;&#x44b;&#x439;</span><span id="styleArrow">&#x25be;</span></button>
 <div class="styles" id="styles" hidden>
-<button class="chip active" data-style="&#1089;&#1087;&#1086;&#1088;&#1090;&#1080;&#1074;&#1085;&#1099;&#1081; &#1086;&#1073;&#1088;&#1072;&#1079;">&#1057;&#1087;&#1086;&#1088;&#1090;&#1080;&#1074;&#1085;&#1099;&#1081;</button>
-<button class="chip" data-style="&#1076;&#1086;&#1084;&#1072;&#1096;&#1085;&#1080;&#1081; &#1086;&#1073;&#1088;&#1072;&#1079;">&#1044;&#1086;&#1084;&#1072;&#1096;&#1085;&#1080;&#1081;</button>
-<button class="chip" data-style="&#1087;&#1086;&#1074;&#1089;&#1077;&#1076;&#1085;&#1077;&#1074;&#1085;&#1099;&#1081; &#1089;&#1090;&#1080;&#1083;&#1100;">Casual</button>
-<button class="chip" data-style="&#1091;&#1083;&#1080;&#1095;&#1085;&#1099;&#1081; &#1086;&#1073;&#1088;&#1072;&#1079;">&#1059;&#1083;&#1080;&#1095;&#1085;&#1099;&#1081;</button>
-<button class="chip" data-style="&#1076;&#1077;&#1083;&#1086;&#1074;&#1086;&#1081; &#1089;&#1090;&#1080;&#1083;&#1100;">&#1044;&#1077;&#1083;&#1086;&#1074;&#1086;&#1081;</button>
-<button class="chip" data-style="&#1082;&#1083;&#1072;&#1089;&#1089;&#1080;&#1095;&#1077;&#1089;&#1082;&#1080;&#1081; &#1089;&#1090;&#1080;&#1083;&#1100;">&#1050;&#1083;&#1072;&#1089;&#1089;&#1080;&#1095;&#1077;&#1089;&#1082;&#1080;&#1081;</button>
-<button class="chip" data-style="&#1074;&#1077;&#1095;&#1077;&#1088;&#1085;&#1080;&#1081; &#1085;&#1072;&#1088;&#1103;&#1076;">&#1042;&#1077;&#1095;&#1077;&#1088;&#1085;&#1080;&#1081;</button>
-<button class="chip" data-style="&#1087;&#1088;&#1072;&#1079;&#1076;&#1085;&#1080;&#1095;&#1085;&#1099;&#1081; &#1086;&#1073;&#1088;&#1072;&#1079;">&#1055;&#1088;&#1072;&#1079;&#1076;&#1085;&#1080;&#1095;&#1085;&#1099;&#1081;</button>
-<button class="chip" data-style="&#1083;&#1077;&#1090;&#1085;&#1080;&#1081; &#1086;&#1073;&#1088;&#1072;&#1079;">&#1051;&#1077;&#1090;&#1085;&#1080;&#1081;</button>
-<button class="chip" data-style="&#1079;&#1080;&#1084;&#1085;&#1080;&#1081; &#1086;&#1073;&#1088;&#1072;&#1079;">&#1047;&#1080;&#1084;&#1085;&#1080;&#1081;</button>
-<button class="chip" data-style="&#1076;&#1083;&#1103; &#1087;&#1091;&#1090;&#1077;&#1096;&#1077;&#1089;&#1090;&#1074;&#1080;&#1081;">&#1044;&#1083;&#1103; &#1087;&#1091;&#1090;&#1077;&#1096;&#1077;&#1089;&#1090;&#1074;&#1080;&#1081;</button>
-<button class="chip" data-style="&#1085;&#1072;&#1088;&#1103;&#1076;&#1085;&#1099;&#1081; &#1086;&#1073;&#1088;&#1072;&#1079;">&#1053;&#1072;&#1088;&#1103;&#1076;&#1085;&#1099;&#1081;</button>
+<button class="chip active" data-style="&#x441;&#x43f;&#x43e;&#x440;&#x442;&#x438;&#x432;&#x43d;&#x44b;&#x439; &#x43e;&#x431;&#x440;&#x430;&#x437;">&#x421;&#x43f;&#x43e;&#x440;&#x442;&#x438;&#x432;&#x43d;&#x44b;&#x439;</button>
+<button class="chip" data-style="&#x434;&#x43e;&#x43c;&#x430;&#x448;&#x43d;&#x438;&#x439; &#x43e;&#x431;&#x440;&#x430;&#x437;">&#x414;&#x43e;&#x43c;&#x430;&#x448;&#x43d;&#x438;&#x439;</button>
+<button class="chip" data-style="&#x43f;&#x43e;&#x432;&#x441;&#x435;&#x434;&#x43d;&#x435;&#x432;&#x43d;&#x44b;&#x439; &#x441;&#x442;&#x438;&#x43b;&#x44c;">Casual</button>
+<button class="chip" data-style="&#x443;&#x43b;&#x438;&#x447;&#x43d;&#x44b;&#x439; &#x43e;&#x431;&#x440;&#x430;&#x437;">&#x423;&#x43b;&#x438;&#x447;&#x43d;&#x44b;&#x439;</button>
+<button class="chip" data-style="&#x434;&#x435;&#x43b;&#x43e;&#x432;&#x43e;&#x439; &#x441;&#x442;&#x438;&#x43b;&#x44c;">&#x414;&#x435;&#x43b;&#x43e;&#x432;&#x43e;&#x439;</button>
+<button class="chip" data-style="&#x43a;&#x43b;&#x430;&#x441;&#x441;&#x438;&#x447;&#x435;&#x441;&#x43a;&#x438;&#x439; &#x441;&#x442;&#x438;&#x43b;&#x44c;">&#x41a;&#x43b;&#x430;&#x441;&#x441;&#x438;&#x447;&#x435;&#x441;&#x43a;&#x438;&#x439;</button>
+<button class="chip" data-style="&#x432;&#x435;&#x447;&#x435;&#x440;&#x43d;&#x438;&#x439; &#x43d;&#x430;&#x440;&#x44f;&#x434;">&#x412;&#x435;&#x447;&#x435;&#x440;&#x43d;&#x438;&#x439;</button>
+<button class="chip" data-style="&#x43f;&#x440;&#x430;&#x437;&#x434;&#x43d;&#x438;&#x447;&#x43d;&#x44b;&#x439; &#x43e;&#x431;&#x440;&#x430;&#x437;">&#x41f;&#x440;&#x430;&#x437;&#x434;&#x43d;&#x438;&#x447;&#x43d;&#x44b;&#x439;</button>
+<button class="chip" data-style="&#x43b;&#x435;&#x442;&#x43d;&#x438;&#x439; &#x43e;&#x431;&#x440;&#x430;&#x437;">&#x41b;&#x435;&#x442;&#x43d;&#x438;&#x439;</button>
+<button class="chip" data-style="&#x437;&#x438;&#x43c;&#x43d;&#x438;&#x439; &#x43e;&#x431;&#x440;&#x430;&#x437;">&#x417;&#x438;&#x43c;&#x43d;&#x438;&#x439;</button>
+<button class="chip" data-style="&#x434;&#x43b;&#x44f; &#x43f;&#x443;&#x442;&#x435;&#x448;&#x435;&#x441;&#x442;&#x432;&#x438;&#x439;">&#x414;&#x43b;&#x44f; &#x43f;&#x443;&#x442;&#x435;&#x448;&#x435;&#x441;&#x442;&#x432;&#x438;&#x439;</button>
+<button class="chip" data-style="&#x43d;&#x430;&#x440;&#x44f;&#x434;&#x43d;&#x44b;&#x439; &#x43e;&#x431;&#x440;&#x430;&#x437;">&#x41d;&#x430;&#x440;&#x44f;&#x434;&#x43d;&#x44b;&#x439;</button>
 </div>
 </div>
-<h2 data-i18n="editTitle">3. &#1063;&#1090;&#1086; &#1080;&#1079;&#1084;&#1077;&#1085;&#1080;&#1090;&#1100;</h2>
-<textarea id="prompt">&#1048;&#1079;&#1084;&#1077;&#1085;&#1080;&#1090;&#1100; &#1090;&#1086;&#1083;&#1100;&#1082;&#1086; &#1086;&#1076;&#1077;&#1078;&#1076;&#1091;, &#1089;&#1086;&#1093;&#1088;&#1072;&#1085;&#1080;&#1074; &#1095;&#1077;&#1083;&#1086;&#1074;&#1077;&#1082;&#1072;, &#1083;&#1080;&#1094;&#1086;, &#1087;&#1086;&#1079;&#1091; &#1080; &#1092;&#1086;&#1085;. &#1057;&#1076;&#1077;&#1083;&#1072;&#1090;&#1100; &#1086;&#1073;&#1088;&#1072;&#1079; &#1089;&#1086;&#1074;&#1088;&#1077;&#1084;&#1077;&#1085;&#1085;&#1099;&#1084; &#1080; &#1082;&#1088;&#1072;&#1089;&#1080;&#1074;&#1099;&#1084;.</textarea>
-<div class="row"><button class="secondary" id="clear" data-i18n="clear">&#1054;&#1095;&#1080;&#1089;&#1090;&#1080;&#1090;&#1100;</button><button class="primary" id="generate" data-i18n="generate">&#10024; &#1057;&#1075;&#1077;&#1085;&#1077;&#1088;&#1080;&#1088;&#1086;&#1074;&#1072;&#1090;&#1100;</button></div>
-<div class="row"><button class="secondary" id="video" data-i18n="video">&#127916; &#1060;&#1086;&#1090;&#1086; &#8594; &#1074;&#1080;&#1076;&#1077;&#1086;</button></div>
+<h2 data-i18n="editTitle">3. &#x427;&#x442;&#x43e; &#x438;&#x437;&#x43c;&#x435;&#x43d;&#x438;&#x442;&#x44c;</h2>
+<textarea id="prompt">&#x418;&#x437;&#x43c;&#x435;&#x43d;&#x438;&#x442;&#x44c; &#x442;&#x43e;&#x43b;&#x44c;&#x43a;&#x43e; &#x43e;&#x434;&#x435;&#x436;&#x434;&#x443;, &#x441;&#x43e;&#x445;&#x440;&#x430;&#x43d;&#x438;&#x432; &#x447;&#x435;&#x43b;&#x43e;&#x432;&#x435;&#x43a;&#x430;, &#x43b;&#x438;&#x446;&#x43e;, &#x43f;&#x43e;&#x437;&#x443; &#x438; &#x444;&#x43e;&#x43d;. &#x421;&#x434;&#x435;&#x43b;&#x430;&#x442;&#x44c; &#x43e;&#x431;&#x440;&#x430;&#x437; &#x441;&#x43e;&#x432;&#x440;&#x435;&#x43c;&#x435;&#x43d;&#x43d;&#x44b;&#x43c; &#x438; &#x43a;&#x440;&#x430;&#x441;&#x438;&#x432;&#x44b;&#x43c;.</textarea>
+<div class="row"><button class="secondary" id="clear" data-i18n="clear">&#x41e;&#x447;&#x438;&#x441;&#x442;&#x438;&#x442;&#x44c;</button><button class="primary" id="generate" data-i18n="generate">&#x2728; &#x421;&#x433;&#x435;&#x43d;&#x435;&#x440;&#x438;&#x440;&#x43e;&#x432;&#x430;&#x442;&#x44c;</button></div>
+<div class="row"><button class="secondary" id="video" data-i18n="video">&#x1f3ac; &#x424;&#x43e;&#x442;&#x43e; &#x2192; &#x432;&#x438;&#x434;&#x435;&#x43e;</button></div>
 <div class="status" id="status"></div>
-<div class="note"><span data-i18n="note">&#1057;&#1077;&#1088;&#1074;&#1077;&#1088; &#1085;&#1072;&#1089;&#1090;&#1088;&#1072;&#1080;&#1074;&#1072;&#1077;&#1090;&#1089;&#1103; &#1086;&#1090;&#1076;&#1077;&#1083;&#1100;&#1085;&#1086;. &#1050;&#1083;&#1102;&#1095; AI &#1085;&#1077; &#1093;&#1088;&#1072;&#1085;&#1080;&#1090;&#1089;&#1103; &#1074; HTML.</span></div>
+<div class="note"><span data-i18n="note">&#x421;&#x435;&#x440;&#x432;&#x435;&#x440; &#x43d;&#x430;&#x441;&#x442;&#x440;&#x430;&#x438;&#x432;&#x430;&#x435;&#x442;&#x441;&#x44f; &#x43e;&#x442;&#x434;&#x435;&#x43b;&#x44c;&#x43d;&#x43e;. &#x41a;&#x43b;&#x44e;&#x447; AI &#x43d;&#x435; &#x445;&#x440;&#x430;&#x43d;&#x438;&#x442;&#x441;&#x44f; &#x432; HTML.</span></div>
 </section>
-<section class="card"><h2 data-i18n="resultTitle">&#1056;&#1077;&#1079;&#1091;&#1083;&#1100;&#1090;&#1072;&#1090;</h2><div class="preview" id="preview"><div class="empty"><div class="icon">&#128444;&#65039;</div><div data-i18n="emptyResult">&#1047;&#1076;&#1077;&#1089;&#1100; &#1087;&#1086;&#1103;&#1074;&#1080;&#1090;&#1089;&#1103; &#1089;&#1075;&#1077;&#1085;&#1077;&#1088;&#1080;&#1088;&#1086;&#1074;&#1072;&#1085;&#1085;&#1086;&#1077; &#1080;&#1079;&#1086;&#1073;&#1088;&#1072;&#1078;&#1077;&#1085;&#1080;&#1077;</div></div></div></section>
+<section class="card"><h2 data-i18n="resultTitle">&#x420;&#x435;&#x437;&#x443;&#x43b;&#x44c;&#x442;&#x430;&#x442;</h2><div class="preview" id="preview"><div class="empty"><div class="icon">&#x1f5bc;&#xfe0f;</div><div data-i18n="emptyResult">&#x417;&#x434;&#x435;&#x441;&#x44c; &#x43f;&#x43e;&#x44f;&#x432;&#x438;&#x442;&#x441;&#x44f; &#x441;&#x433;&#x435;&#x43d;&#x435;&#x440;&#x438;&#x440;&#x43e;&#x432;&#x430;&#x43d;&#x43d;&#x43e;&#x435; &#x438;&#x437;&#x43e;&#x431;&#x440;&#x430;&#x436;&#x435;&#x43d;&#x438;&#x435;</div></div></div></section>
 </div></div>
 <script>
 
@@ -210,11 +210,13 @@ const status=document.getElementById('status'),prompt=document.getElementById('p
 const photoDrop=document.getElementById('photoDrop'),styleToggle=document.getElementById('styleToggle'),styles=document.getElementById('styles'),selectedStyleLabel=document.getElementById('selectedStyleLabel'),styleArrow=document.getElementById('styleArrow');
 let selectedStyle='\u0441\u043f\u043e\u0440\u0442\u0438\u0432\u043d\u044b\u0439 \u043e\u0431\u0440\u0430\u0437';
 applyLanguage();
-file.onchange=()=>{const f=file.files?.[0];if(!f)return;source.src=URL.createObjectURL(f);source.hidden=false;dropText.hidden=true;status.textContent=translations[currentLang].loaded};
+file.onchange=()=>{const f=file.files?.[0];if(!f)return;if(!f.type.startsWith('image/')){status.textContent=translations[currentLang].invalidFile;return}if(source.src)URL.revokeObjectURL(source.src);source.src=URL.createObjectURL(f);source.hidden=false;dropText.hidden=true;photoDrop.classList.remove('zoomed');status.textContent=translations[currentLang].loaded};
+photoDrop.addEventListener('click',e=>{if(e.target===source)return;file.click()});
+photoDrop.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();file.click()}});
 styleToggle.onclick=()=>{const open=!styles.hidden;styles.hidden=open;styleArrow.textContent=open?'\u25be':'\u25b4'};
 document.querySelectorAll('.chip').forEach(b=>b.onclick=()=>{document.querySelectorAll('.chip').forEach(x=>x.classList.remove('active'));b.classList.add('active');selectedStyle=b.dataset.style;selectedStyleLabel.textContent=b.textContent;prompt.value=stylePrompts[selectedStyle]?.[currentLang]||translations[currentLang].prompt;styles.hidden=true;styleArrow.textContent='\u25be'});
 source.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();photoDrop.classList.toggle('zoomed')});
-document.getElementById('clear').onclick=()=>{file.value='';source.hidden=true;dropText.hidden=false;photoDrop.classList.remove('zoomed');status.textContent='';preview.innerHTML='<div class="empty"><div class="icon">\ud83d\uddbc\ufe0f</div><div data-i18n="emptyResult">'+translations[currentLang].emptyResult+'</div></div>'};
+document.getElementById('clear').onclick=()=>{file.value='';if(source.src)URL.revokeObjectURL(source.src);source.removeAttribute('src');source.hidden=true;dropText.hidden=false;photoDrop.classList.remove('zoomed');status.textContent='';if(preview.dataset.objectUrl)URL.revokeObjectURL(preview.dataset.objectUrl);delete preview.dataset.objectUrl;preview.innerHTML='<div class="empty"><div class="icon">\ud83d\uddbc\ufe0f</div><div data-i18n="emptyResult">'+translations[currentLang].emptyResult+'</div></div>'};
 gen.onclick=async()=>{
  if(!file.files?.[0]){status.textContent=translations[currentLang].chooseFirst;return}
  if(!API_BASE){status.textContent=translations[currentLang].noApi;return}
@@ -222,20 +224,14 @@ gen.onclick=async()=>{
  const fd=new FormData();fd.append('image',file.files[0]);fd.append('style',selectedStyle);fd.append('prompt',prompt.value);
  try{
   const r=await fetch(API_BASE.replace(/\/$/,'')+'/api/generate',{method:'POST',body:fd});
-if(!r.ok){
-  const data=await r.json().catch(()=>({}));
-  throw new Error(data.error||('HTTP '+r.status));
-}
-const blob=await r.blob();
-if(!blob.size)throw new Error('Сервер не вернул изображение.');
-const url=URL.createObjectURL(blob);
-preview.innerHTML='<img alt="Сгенерированный результат" src="'+url+'">';
-status.textContent=translations[currentLang].done;
-  con
-  if(
-  if(
-  pre
-  sta
+  if(!r.ok){const data=await r.json().catch(()=>({}));throw new Error(data.error||('HTTP '+r.status));}
+  const blob=await r.blob();
+  if(!blob.size)throw new Error('\u0421\u0435\u0440\u0432\u0435\u0440 \u043d\u0435 \u0432\u0435\u0440\u043d\u0443\u043b \u0438\u0437\u043e\u0431\u0440\u0430\u0436\u0435\u043d\u0438\u0435.');
+  if(preview.dataset.objectUrl)URL.revokeObjectURL(preview.dataset.objectUrl);
+  const url=URL.createObjectURL(blob);
+  preview.dataset.objectUrl=url;
+  preview.innerHTML='<img alt="\u0421\u0433\u0435\u043d\u0435\u0440\u0438\u0440\u043e\u0432\u0430\u043d\u043d\u044b\u0439 \u0440\u0435\u0437\u0443\u043b\u044c\u0442\u0430\u0442" src="'+url+'">';
+  status.textContent=translations[currentLang].done;
  }catch(e){status.textContent='\u274c '+e.message}
  finally{gen.disabled=false}
 };
