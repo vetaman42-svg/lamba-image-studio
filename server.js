@@ -55,4 +55,50 @@ app.post('/api/generate', upload.single('image'), async (req, res) => {
   }
 });
 
+
+
+
+                                                                                  
+app.post('/api/video', upload.single('image'), async (req, res) => {
+  try {
+    if (!TOKEN) {
+      return res.status(500).json({ error: 'REPLICATE_API_TOKEN не настроен на Render.' });
+    }
+
+    if (!req.file) {
+      return res.status(400).json({ error: 'Фото не загружено.' });
+    }
+
+    const prompt = String(req.body?.prompt || 'Камера плавно приближается, человек слегка двигается естественно.').trim();
+
+    const output = await replicate.run('wan-video/wan-2.2-i2v-fast', {
+      input: {
+        image: new Blob([req.file.buffer], { type: req.file.mimetype }),
+        prompt,
+        go_fast: true,
+        num_frames: 81,
+        resolution: '480p',
+        sample_shift: 12,
+        frames_per_second: 16,
+        interpolate_output: false
+      }
+    });
+
+    if (!output) {
+      throw new Error('Модель не вернула видео.');
+    }
+
+    const data = Buffer.from(await output.arrayBuffer());
+
+    res.set('Content-Type', 'video/mp4');
+    res.set('Cache-Control', 'no-store');
+    res.send(data);
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({
+      error: err?.message || 'Ошибка генерации видео.'
+    });
+  }
+});
 app.listen(PORT, () => console.log(`Lamba Remote Image Editor listening on port ${PORT}`));
