@@ -4,216 +4,435 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
 <title>Lamba Image Studio — AI Image Generator</title>
 
 <style>
-* {
-  box-sizing: border-box;
+*{box-sizing:border-box}
+
+html{scroll-behavior:smooth}
+
+body{
+    margin:0;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+    background:#070b18;
+    color:white;
 }
 
-body {
-  margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  background: #0b0d18;
-  color: white;
+.page{
+    min-height:100vh;
+    background:
+      radial-gradient(circle at 50% 25%,rgba(124,58,237,.22),transparent 35%),
+      #070b18;
 }
 
-.page {
-  min-height: 100vh;
-  display: flex;
-  flex-direction: column;
+header{
+    height:78px;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    padding:0 4%;
+    border-bottom:1px solid rgba(255,255,255,.08);
+    position:relative;
+    z-index:5;
 }
 
-header {
-  padding: 22px 7%;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  border-bottom: 1px solid rgba(255,255,255,.08);
+.logo{
+    display:flex;
+    align-items:center;
+    gap:12px;
+    font-size:27px;
+    font-weight:800;
 }
 
-.logo {
-  font-size: 25px;
-  font-weight: 800;
+.crown{
+    font-size:40px;
 }
 
-.logo span {
-  color: #9b7cff;
+.logo span{
+    background:linear-gradient(90deg,#fff,#b77cff);
+    -webkit-background-clip:text;
+    color:transparent;
 }
 
-.lang {
-  padding: 8px 14px;
-  border: 1px solid rgba(255,255,255,.15);
-  border-radius: 20px;
-  color: #ddd;
+.logo small{
+    display:block;
+    font-size:10px;
+    letter-spacing:3px;
+    color:#aaa;
+    margin-top:2px;
 }
 
-.hero {
-  text-align: center;
-  padding: 90px 20px 70px;
-  max-width: 1000px;
-  margin: auto;
+.nav{
+    display:flex;
+    align-items:center;
+    gap:18px;
 }
 
-.badge {
-  display: inline-block;
-  padding: 8px 16px;
-  border-radius: 20px;
-  background: rgba(155,124,255,.12);
-  border: 1px solid rgba(155,124,255,.35);
-  color: #b9a4ff;
-  margin-bottom: 25px;
+.lang{
+    padding:12px 20px;
+    border:1px solid rgba(180,120,255,.35);
+    border-radius:25px;
+    background:rgba(20,20,40,.7);
 }
 
-h1 {
-  font-size: clamp(42px, 7vw, 76px);
-  line-height: 1.05;
-  margin: 0 0 25px;
+.menu{
+    font-size:30px;
 }
 
-h1 span {
-  color: #a487ff;
+.hero{
+    max-width:1250px;
+    margin:auto;
+    min-height:610px;
+    display:grid;
+    grid-template-columns:1fr 1.3fr 1fr;
+    gap:20px;
+    align-items:center;
+    padding:45px 30px;
 }
 
-.subtitle {
-  max-width: 680px;
-  margin: auto;
-  color: #b9bdca;
-  font-size: 20px;
-  line-height: 1.6;
+.hero-photo{
+    height:500px;
+    border-radius:28px;
+    overflow:hidden;
+    background-size:cover;
+    background-position:center;
+    box-shadow:0 20px 70px rgba(0,0,0,.55);
 }
 
-.button {
-  display: inline-block;
-  margin-top: 35px;
-  padding: 16px 30px;
-  border-radius: 14px;
-  background: #8d6cff;
-  color: white;
-  text-decoration: none;
-  font-size: 18px;
-  font-weight: 700;
-  box-shadow: 0 10px 35px rgba(141,108,255,.25);
+.left{
+    background-image:
+      linear-gradient(to top,rgba(5,8,20,.45),transparent),
+      url("https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=900&q=85");
 }
 
-.button:hover {
-  opacity: .9;
+.right{
+    background-image:
+      linear-gradient(to top,rgba(5,8,20,.4),transparent),
+      url("https://images.unsplash.com/photo-1531123897727-8f129e1688ce?auto=format&fit=crop&w=900&q=85");
 }
 
-.features {
-  width: 86%;
-  max-width: 1100px;
-  margin: 20px auto 80px;
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 20px;
+.hero-center{
+    text-align:center;
+    padding:20px;
 }
 
-.card {
-  padding: 28px;
-  background: #121522;
-  border: 1px solid rgba(255,255,255,.08);
-  border-radius: 20px;
+.badge{
+    display:inline-block;
+    padding:11px 22px;
+    border:1px solid #9b5cff;
+    border-radius:30px;
+    color:#eee;
+    background:rgba(80,35,150,.18);
+    margin-bottom:22px;
 }
 
-.card h2 {
-  margin-top: 0;
-  font-size: 21px;
+h1{
+    font-size:58px;
+    line-height:1.02;
+    margin:0 0 24px;
+    font-weight:900;
 }
 
-.card p {
-  color: #aeb2c0;
-  line-height: 1.6;
+.gradient{
+    background:linear-gradient(90deg,#fff,#b86cff);
+    -webkit-background-clip:text;
+    color:transparent;
 }
 
-footer {
-  margin-top: auto;
-  padding: 30px 20px;
-  text-align: center;
-  color: #777d8e;
-  border-top: 1px solid rgba(255,255,255,.08);
+.subtitle{
+    color:#c7c7d3;
+    font-size:18px;
+    line-height:1.6;
+    max-width:470px;
+    margin:0 auto 30px;
 }
 
-@media (max-width: 700px) {
-  .features {
-    grid-template-columns: 1fr;
-  }
+.main-button{
+    display:inline-block;
+    text-decoration:none;
+    color:white;
+    font-size:19px;
+    font-weight:700;
+    padding:18px 34px;
+    border-radius:35px;
+    background:linear-gradient(90deg,#713cff,#9d5cff);
+    box-shadow:0 12px 35px rgba(113,60,255,.35);
+    transition:.2s;
+}
 
-  header {
-    padding: 18px 5%;
-  }
+.main-button:hover{
+    transform:translateY(-2px);
+    box-shadow:0 16px 45px rgba(113,60,255,.5);
+}
 
-  .hero {
-    padding-top: 65px;
-  }
+.story{
+    margin-top:25px;
+    font-size:22px;
+    color:#b98cff;
+    font-style:italic;
+}
+
+.features{
+    max-width:1180px;
+    margin:0 auto;
+    padding:0 30px 45px;
+    display:grid;
+    grid-template-columns:repeat(4,1fr);
+    gap:16px;
+}
+
+.card{
+    padding:28px 20px;
+    text-align:center;
+    border:1px solid rgba(150,120,255,.25);
+    border-radius:20px;
+    background:rgba(12,17,35,.85);
+}
+
+.icon{
+    font-size:32px;
+    margin-bottom:12px;
+}
+
+.card h3{
+    margin:8px 0;
+    font-size:19px;
+}
+
+.card p{
+    color:#aeb0bd;
+    line-height:1.5;
+    font-size:14px;
+    margin:0;
+}
+
+.styles{
+    max-width:1180px;
+    margin:auto;
+    padding:10px 30px 60px;
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:18px;
+}
+
+.style-card{
+    min-height:270px;
+    border-radius:22px;
+    overflow:hidden;
+    background-size:cover;
+    background-position:center;
+    display:flex;
+    align-items:flex-end;
+    padding:25px;
+    position:relative;
+}
+
+.style-card:before{
+    content:"";
+    position:absolute;
+    inset:0;
+    background:linear-gradient(transparent,rgba(3,5,15,.9));
+}
+
+.business{
+    background-image:url("https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&w=1200&q=85");
+}
+
+.sport{
+    background-image:url("https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=1200&q=85");
+}
+
+.style-content{
+    position:relative;
+    z-index:1;
+}
+
+.style-content h2{
+    margin:0 0 8px;
+    font-size:27px;
+}
+
+.style-content p{
+    color:#ddd;
+    margin:0 0 15px;
+}
+
+.try{
+    display:inline-block;
+    border:1px solid #a76aff;
+    border-radius:22px;
+    padding:9px 20px;
+    color:white;
+    text-decoration:none;
+}
+
+footer{
+    border-top:1px solid rgba(255,255,255,.08);
+    padding:25px 4%;
+    display:flex;
+    justify-content:space-between;
+    color:#9da0b0;
+}
+
+@media(max-width:850px){
+    .hero{
+        grid-template-columns:1fr;
+        padding:25px 18px;
+    }
+
+    .hero-photo{
+        height:360px;
+    }
+
+    .hero-center{order:-1}
+
+    h1{
+        font-size:43px;
+    }
+
+    .features{
+        grid-template-columns:1fr 1fr;
+        padding:0 18px 35px;
+    }
+
+    .styles{
+        grid-template-columns:1fr;
+        padding:10px 18px 45px;
+    }
+
+    header{
+        padding:0 18px;
+    }
+
+    .logo{
+        font-size:21px;
+    }
+
+    .logo small{
+        display:none;
+    }
+}
+
+@media(max-width:500px){
+    .features{
+        grid-template-columns:1fr;
+    }
+
+    .hero-photo{
+        height:330px;
+    }
+
+    footer{
+        flex-direction:column;
+        gap:10px;
+    }
 }
 </style>
 </head>
 
 <body>
-
 <div class="page">
 
 <header>
-  <div class="logo">Lamba <span>Image Studio</span></div>
-  <div class="lang">RU / EN</div>
+    <div class="logo">
+        <div class="crown">♛</div>
+        <div>
+            <span>Lamba Image Studio</span>
+            <small>AI IMAGES FOR A BETTER YOU</small>
+        </div>
+    </div>
+
+    <div class="nav">
+        <div class="lang">RU &nbsp; EN</div>
+        <div class="menu">☰</div>
+    </div>
 </header>
 
 <section class="hero">
 
-  <div class="badge">✨ AI Image Generator</div>
+    <div class="hero-photo left"></div>
 
-  <h1>
-    Create your<br>
-    <span>perfect image</span>
-  </h1>
+    <div class="hero-center">
+        <div class="badge">✨ AI Image Generator</div>
 
-  <p class="subtitle">
-    Lamba Image Studio — современный AI-инструмент
-    для создания и редактирования изображений.
-  </p>
+        <h1>
+            Create your<br>
+            <span class="gradient">perfect image</span>
+        </h1>
 
-  <a class="button"
-     href="./public/Lamba_Image_Studio_v03_index.html">
-     ✨ Открыть генератор
-  </a>
+        <p class="subtitle">
+            Lamba Image Studio — современный AI-инструмент
+            для создания и редактирования изображений.
+        </p>
+
+        <a class="main-button"
+           href="public/Lamba_Image_Studio_v03_index.html">
+           ✨ Открыть генератор →
+        </a>
+
+        <div class="story">
+            Your Style<br>
+            Your Story ♡
+        </div>
+    </div>
+
+    <div class="hero-photo right"></div>
 
 </section>
 
 <section class="features">
 
-  <div class="card">
-    <h2>🖼️ Создание изображений</h2>
-    <p>
-      Загружайте фотографию и создавайте новый образ
-      с помощью AI.
-    </p>
-  </div>
+    <div class="card">
+        <div class="icon">▧</div>
+        <h3>Загрузка фото</h3>
+        <p>Загрузите свою фотографию и создайте новый образ с помощью AI.</p>
+    </div>
 
-  <div class="card">
-    <h2>⚡ Просто и быстро</h2>
-    <p>
-      Понятный интерфейс, созданный для комфортной работы
-      на iPad, компьютере и других устройствах.
-    </p>
-  </div>
+    <div class="card">
+        <div class="icon">ϟ</div>
+        <h3>Просто и быстро</h3>
+        <p>Понятный интерфейс для iPad, компьютера и других устройств.</p>
+    </div>
 
-  <div class="card">
-    <h2>🎨 Разные стили</h2>
-    <p>
-      Спортивный, вечерний, деловой, Casual и другие
-      варианты образов.
-    </p>
-  </div>
+    <div class="card">
+        <div class="icon">◉</div>
+        <h3>Разные стили</h3>
+        <p>Спортивный, вечерний, деловой, Casual и другие варианты образов.</p>
+    </div>
+
+    <div class="card">
+        <div class="icon">♡</div>
+        <h3>Безопасно</h3>
+        <p>Ваши фотографии не хранятся на сервере и используются только для генерации.</p>
+    </div>
+
+</section>
+
+<section class="styles">
+
+    <div class="style-card business">
+        <div class="style-content">
+            <h2>Деловой образ</h2>
+            <p>Стиль, уверенность, индивидуальность.</p>
+            <a class="try" href="public/Lamba_Image_Studio_v03_index.html">Попробовать →</a>
+        </div>
+    </div>
+
+    <div class="style-card sport">
+        <div class="style-content">
+            <h2>Спортивный образ</h2>
+            <p>Энергия, движение, современный стиль.</p>
+            <a class="try" href="public/Lamba_Image_Studio_v03_index.html">Попробовать →</a>
+        </div>
+    </div>
 
 </section>
 
 <footer>
-  © 2026 Lamba Image Studio
+    <div>© 2026 Lamba Image Studio</div>
+    <div>AI technology for your creativity ♡</div>
 </footer>
 
 </div>
-
 </body>
 </html>
