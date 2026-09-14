@@ -20,7 +20,18 @@ textarea{width:100%;min-height:105px;resize:vertical;background:#10141c;color:#f
 <body>
 <div class="wrap">
 <div class="head"><div class="logo">Lamba <span>Image Studio</span></div><div class="head-actions"><button class="lang-btn" id="langToggle" type="button">RU / EN</button><div class="badge">v0.3 iPad Ready</div></div></div>
-<div class="grid">
+<div style="margin:12px 0;padding:12px 14px;border:1px solid #2a3040;border-radius:14px;background:#151923;">
+  <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+    <input id="authEmail" type="email" placeholder="Email"
+      style="flex:1;min-width:180px;padding:11px;border-radius:10px;border:1px solid #2a3040;background:#10141c;color:#fff;">
+    <input id="authPassword" type="password" placeholder="Пароль"
+      style="flex:1;min-width:160px;padding:11px;border-radius:10px;border:1px solid #2a3040;background:#10141c;color:#fff;">
+    <button id="registerBtn" class="secondary">Регистрация</button>
+    <button id="loginBtn">Войти</button>
+  </div>
+  <div id="authStatus" style="margin-top:8px;color:#9aa3b2;"></div>
+</div>
+  <div class="grid">
 <section class="card">
 <h2 data-i18n="sourceTitle">1. &#x418;&#x441;&#x445;&#x43e;&#x434;&#x43d;&#x43e;&#x435; &#x444;&#x43e;&#x442;&#x43e;</h2>
 <div class="drop" id="photoDrop" role="button" tabindex="0"><div id="dropText"><strong data-i18n="choosePhoto">&#x41d;&#x430;&#x436;&#x43c;&#x438;, &#x447;&#x442;&#x43e;&#x431;&#x44b; &#x432;&#x44b;&#x431;&#x440;&#x430;&#x442;&#x44c; &#x444;&#x43e;&#x442;&#x43e;</strong>PNG / JPG / WEBP</div><img id="source" hidden></div>
@@ -227,7 +238,49 @@ styleToggle.onclick=()=>{const open=!styles.hidden;styles.hidden=open;styleArrow
 document.querySelectorAll('.chip').forEach(b=>b.onclick=()=>{document.querySelectorAll('.chip').forEach(x=>x.classList.remove('active'));b.classList.add('active');selectedStyle=b.dataset.style;selectedStyleLabel.textContent=b.textContent;prompt.value=stylePrompts[selectedStyle]?.[currentLang]||translations[currentLang].prompt;styles.hidden=true;styleArrow.textContent='\u25be'});
 source.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();photoDrop.classList.toggle('zoomed')});
 document.getElementById('clear').onclick=()=>{const saveImage=document.getElementById('saveImage');if(saveImage)saveImage.remove();file.value='';if(source.src)URL.revokeObjectURL(source.src);source.removeAttribute('src');source.hidden=true;dropText.hidden=false;photoDrop.classList.remove('zoomed');status.textContent='';if(preview.dataset.objectUrl)URL.revokeObjectURL(preview.dataset.objectUrl);delete preview.dataset.objectUrl;preview.innerHTML='<div class="empty"><div class="icon">\ud83d\uddbc\ufe0f</div><div data-i18n="emptyResult">'+translations[currentLang].emptyResult+'</div></div>'};
-gen.onclick=async()=>{
+document.getElementById('registerBtn').onclick=async()=>{
+  const email=document.getElementById('authEmail').value.trim();
+  const password=document.getElementById('authPassword').value;
+  const authStatus=document.getElementById('authStatus');
+
+  if(!email || !password){
+    authStatus.textContent='Введите email и пароль';
+    return;
+  }
+
+  const {error}=await supabaseClient.auth.signUp({email,password});
+
+  if(error){
+    authStatus.textContent='Ошибка: '+error.message;
+    return;
+  }
+
+  authStatus.textContent='Регистрация выполнена. Теперь войдите.';
+};
+
+document.getElementById('loginBtn').onclick=async()=>{
+  const email=document.getElementById('authEmail').value.trim();
+  const password=document.getElementById('authPassword').value;
+  const authStatus=document.getElementById('authStatus');
+
+  if(!email || !password){
+    authStatus.textContent='Введите email и пароль';
+    return;
+  }
+
+  const {error}=await supabaseClient.auth.signInWithPassword({
+    email,
+    password
+  });
+
+  if(error){
+    authStatus.textContent='Ошибка входа: '+error.message;
+    return;
+  }
+
+  authStatus.textContent='Вы вошли в Lamba Image Studio ✅';
+};
+  gen.onclick=async()=>{
  if(!file.files?.[0]){status.textContent=translations[currentLang].chooseFirst;return}
  if(!API_BASE){status.textContent=translations[currentLang].noApi;return}
  gen.disabled=true;status.textContent=translations[currentLang].sending;
