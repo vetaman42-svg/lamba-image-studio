@@ -192,7 +192,9 @@ function applyLanguage(){
   });
   selectedStyleLabel.textContent=t.styles[selectedStyle]||selectedStyleLabel.textContent;
   prompt.value=stylePrompts[selectedStyle]?.[currentLang]||t.prompt;
-  document.getElementById('langToggle').textContent=currentLang==='ru'?'RU / EN':'EN / RU'; const saveImage=document.getElementById('saveImage'); if(saveImage)saveImage.textContent=currentLang==='ru'?'💾 Сохранить фото':'💾 Save photo';
+  document.getElementById('langToggle').textContent=currentLang==='ru'?'RU / EN':'EN / RU';
+  const saveImage=document.getElementById('saveImage');
+  if(saveImage) saveImage.textContent=currentLang==='ru'?'💾 Сохранить фото':'💾 Save photo';
 }
 
 function toggleLanguage(){
@@ -203,7 +205,7 @@ function toggleLanguage(){
 
 document.getElementById('langToggle').onclick=toggleLanguage;
 
-const  API_BASE='https://egffzzsidualferlscno.supabase.co/functions/v1/lamba-image-studio';
+const API_BASE=localStorage.getItem('lamba_api_url')||window.location.origin;
 const file=document.getElementById('file'),source=document.getElementById('source'),dropText=document.getElementById('dropText');
 const status=document.getElementById('status'),prompt=document.getElementById('prompt'),preview=document.getElementById('preview'),gen=document.getElementById('generate');
 const photoDrop=document.getElementById('photoDrop'),styleToggle=document.getElementById('styleToggle'),styles=document.getElementById('styles'),selectedStyleLabel=document.getElementById('selectedStyleLabel'),styleArrow=document.getElementById('styleArrow');
@@ -237,7 +239,15 @@ gen.onclick=async()=>{
    saveBtn.className='secondary';
    saveBtn.style.marginTop='10px';
    saveBtn.textContent=currentLang==='ru'?'💾 Сохранить фото':'💾 Save photo';
-   saveBtn.onclick=()=>{const a=document.createElement('a');a.href=url;a.download='lamba-image.png';document.body.appendChild(a);a.click();a.remove();};
+   saveBtn.onclick=()=>{
+      const a=document.createElement('a');
+      a.href=url;
+      a.download='lamba-image.png';
+      a.target='_blank';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    };
    preview.parentElement.appendChild(saveBtn);  status.textContent=translations[currentLang].done;
  }catch(e){status.textContent='\u274c '+e.message}
  finally{gen.disabled=false}
