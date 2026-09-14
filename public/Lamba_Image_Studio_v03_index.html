@@ -46,7 +46,7 @@ textarea{width:100%;min-height:105px;resize:vertical;background:#10141c;color:#f
 <h2 data-i18n="editTitle">3. &#x427;&#x442;&#x43e; &#x438;&#x437;&#x43c;&#x435;&#x43d;&#x438;&#x442;&#x44c;</h2>
 <textarea id="prompt">&#x418;&#x437;&#x43c;&#x435;&#x43d;&#x438;&#x442;&#x44c; &#x442;&#x43e;&#x43b;&#x44c;&#x43a;&#x43e; &#x43e;&#x434;&#x435;&#x436;&#x434;&#x443;, &#x441;&#x43e;&#x445;&#x440;&#x430;&#x43d;&#x438;&#x432; &#x447;&#x435;&#x43b;&#x43e;&#x432;&#x435;&#x43a;&#x430;, &#x43b;&#x438;&#x446;&#x43e;, &#x43f;&#x43e;&#x437;&#x443; &#x438; &#x444;&#x43e;&#x43d;. &#x421;&#x434;&#x435;&#x43b;&#x430;&#x442;&#x44c; &#x43e;&#x431;&#x440;&#x430;&#x437; &#x441;&#x43e;&#x432;&#x440;&#x435;&#x43c;&#x435;&#x43d;&#x43d;&#x44b;&#x43c; &#x438; &#x43a;&#x440;&#x430;&#x441;&#x438;&#x432;&#x44b;&#x43c;.</textarea>
 <div class="row"><button class="secondary" id="clear" data-i18n="clear">&#x41e;&#x447;&#x438;&#x441;&#x442;&#x438;&#x442;&#x44c;</button><button class="primary" id="generate" data-i18n="generate">&#x2728; &#x421;&#x433;&#x435;&#x43d;&#x435;&#x440;&#x438;&#x440;&#x43e;&#x432;&#x430;&#x442;&#x44c;</button></div>
-<div class="row"><button class="secondary" id="video" data-i18n="video">&#x1f3ac; &#x424;&#x43e;&#x442;&#x43e; &#x2192; &#x432;&#x438;&#x434;&#x435;&#x43e;</button></div>
+
 <div class="status" id="status"></div>
 <div class="note"><span data-i18n="note">&#x421;&#x435;&#x440;&#x432;&#x435;&#x440; &#x43d;&#x430;&#x441;&#x442;&#x440;&#x430;&#x438;&#x432;&#x430;&#x435;&#x442;&#x441;&#x44f; &#x43e;&#x442;&#x434;&#x435;&#x43b;&#x44c;&#x43d;&#x43e;. &#x41a;&#x43b;&#x44e;&#x447; AI &#x43d;&#x435; &#x445;&#x440;&#x430;&#x43d;&#x438;&#x442;&#x441;&#x44f; &#x432; HTML.</span></div>
 </section>
@@ -98,7 +98,6 @@ const translations={
     resultTitle:'Result',
     clear:'Clear',
     generate:'\u2728 Generate',
-    video:'\ud83c\udfac Photo \u2192 video',
     emptyResult:'The generated image will appear here',
     note:'Server is configured separately. The AI key is not stored in HTML.',
     styles:{
@@ -193,7 +192,7 @@ function applyLanguage(){
   });
   selectedStyleLabel.textContent=t.styles[selectedStyle]||selectedStyleLabel.textContent;
   prompt.value=stylePrompts[selectedStyle]?.[currentLang]||t.prompt;
-  document.getElementById('langToggle').textContent=currentLang==='ru'?'RU / EN':'EN / RU';
+  document.getElementById('langToggle').textContent=currentLang==='ru'?'RU / EN':'EN / RU'; const saveImage=document.getElementById('saveImage'); if(saveImage)saveImage.textContent=currentLang==='ru'?'💾 Сохранить фото':'💾 Save photo';
 }
 
 function toggleLanguage(){
@@ -206,7 +205,7 @@ document.getElementById('langToggle').onclick=toggleLanguage;
 
 const API_BASE=localStorage.getItem('lamba_api_url')||window.location.origin;
 const file=document.getElementById('file'),source=document.getElementById('source'),dropText=document.getElementById('dropText');
-const status=document.getElementById('status'),prompt=document.getElementById('prompt'),preview=document.getElementById('preview'),gen=document.getElementById('generate'),videoBtn=document.getElementById('video');
+const status=document.getElementById('status'),prompt=document.getElementById('prompt'),preview=document.getElementById('preview'),gen=document.getElementById('generate');
 const photoDrop=document.getElementById('photoDrop'),styleToggle=document.getElementById('styleToggle'),styles=document.getElementById('styles'),selectedStyleLabel=document.getElementById('selectedStyleLabel'),styleArrow=document.getElementById('styleArrow');
 let selectedStyle='\u0441\u043f\u043e\u0440\u0442\u0438\u0432\u043d\u044b\u0439 \u043e\u0431\u0440\u0430\u0437';
 applyLanguage();
@@ -216,7 +215,7 @@ photoDrop.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.prev
 styleToggle.onclick=()=>{const open=!styles.hidden;styles.hidden=open;styleArrow.textContent=open?'\u25be':'\u25b4'};
 document.querySelectorAll('.chip').forEach(b=>b.onclick=()=>{document.querySelectorAll('.chip').forEach(x=>x.classList.remove('active'));b.classList.add('active');selectedStyle=b.dataset.style;selectedStyleLabel.textContent=b.textContent;prompt.value=stylePrompts[selectedStyle]?.[currentLang]||translations[currentLang].prompt;styles.hidden=true;styleArrow.textContent='\u25be'});
 source.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();photoDrop.classList.toggle('zoomed')});
-document.getElementById('clear').onclick=()=>{file.value='';if(source.src)URL.revokeObjectURL(source.src);source.removeAttribute('src');source.hidden=true;dropText.hidden=false;photoDrop.classList.remove('zoomed');status.textContent='';if(preview.dataset.objectUrl)URL.revokeObjectURL(preview.dataset.objectUrl);delete preview.dataset.objectUrl;preview.innerHTML='<div class="empty"><div class="icon">\ud83d\uddbc\ufe0f</div><div data-i18n="emptyResult">'+translations[currentLang].emptyResult+'</div></div>'};
+document.getElementById('clear').onclick=()=>{const saveImage=document.getElementById('saveImage');if(saveImage)saveImage.remove();file.value='';if(source.src)URL.revokeObjectURL(source.src);source.removeAttribute('src');source.hidden=true;dropText.hidden=false;photoDrop.classList.remove('zoomed');status.textContent='';if(preview.dataset.objectUrl)URL.revokeObjectURL(preview.dataset.objectUrl);delete preview.dataset.objectUrl;preview.innerHTML='<div class="empty"><div class="icon">\ud83d\uddbc\ufe0f</div><div data-i18n="emptyResult">'+translations[currentLang].emptyResult+'</div></div>'};
 gen.onclick=async()=>{
  if(!file.files?.[0]){status.textContent=translations[currentLang].chooseFirst;return}
  if(!API_BASE){status.textContent=translations[currentLang].noApi;return}
@@ -231,24 +230,18 @@ gen.onclick=async()=>{
   const url=URL.createObjectURL(blob);
   preview.dataset.objectUrl=url;
   preview.innerHTML='<img alt="\u0421\u0433\u0435\u043d\u0435\u0440\u0438\u0440\u043e\u0432\u0430\u043d\u043d\u044b\u0439 \u0440\u0435\u0437\u0443\u043b\u044c\u0442\u0430\u0442" src="'+url+'">';
-  status.textContent=translations[currentLang].done;
+   let saveBtn=document.getElementById('saveImage');
+   if(saveBtn) saveBtn.remove();
+   saveBtn=document.createElement('button');
+   saveBtn.id='saveImage';
+   saveBtn.className='secondary';
+   saveBtn.style.marginTop='10px';
+   saveBtn.textContent=currentLang==='ru'?'💾 Сохранить фото':'💾 Save photo';
+   saveBtn.onclick=()=>{const a=document.createElement('a');a.href=url;a.download='lamba-image.png';document.body.appendChild(a);a.click();a.remove();};
+   preview.parentElement.appendChild(saveBtn);  status.textContent=translations[currentLang].done;
  }catch(e){status.textContent='\u274c '+e.message}
  finally{gen.disabled=false}
 };
-videoBtn.onclick=async()=>{
- if(!file.files?.[0]){status.textContent=translations[currentLang].chooseFirst;return}
- if(!API_BASE){status.textContent=translations[currentLang].noApi;return}
- videoBtn.disabled=true;gen.disabled=true;status.textContent=translations[currentLang].creatingVideo;
- const fd=new FormData();fd.append('image',file.files[0]);fd.append('prompt','\u041a\u0430\u043c\u0435\u0440\u0430 \u043f\u043b\u0430\u0432\u043d\u043e \u043f\u0440\u0438\u0431\u043b\u0438\u0436\u0430\u0435\u0442\u0441\u044f, \u0447\u0435\u043b\u043e\u0432\u0435\u043a \u0441\u043b\u0435\u0433\u043a\u0430 \u0434\u0432\u0438\u0433\u0430\u0435\u0442\u0441\u044f \u0435\u0441\u0442\u0435\u0441\u0442\u0432\u0435\u043d\u043d\u043e. \u0421\u043e\u0445\u0440\u0430\u043d\u0438\u0442\u044c \u043b\u0438\u0446\u043e, \u043e\u0434\u0435\u0436\u0434\u0443 \u0438 \u0444\u043e\u043d.');
- try{
-  const r=await fetch(API_BASE.replace(/\/$/,'')+'/api/video',{method:'POST',body:fd});
-  if(!r.ok){const data=await r.json().catch(()=>({}));throw new Error(data.error||('HTTP '+r.status));}
-  const blob=await r.blob();
-  const url=URL.createObjectURL(blob);
-  preview.innerHTML='<video controls playsinline autoplay loop style="max-width:100%;max-height:680px;display:block"><source src="'+url+'" type="video/mp4"></video>';
-  status.textContent=translations[currentLang].videoDone;
- }catch(e){status.textContent='\u274c '+e.message}
- finally{videoBtn.disabled=false;gen.disabled=false}
-};
+
 </script>
 </body></html>
