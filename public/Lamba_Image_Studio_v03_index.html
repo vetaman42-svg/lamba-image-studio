@@ -52,8 +52,17 @@ textarea{width:100%;min-height:105px;resize:vertical;background:#10141c;color:#f
 </section>
 <section class="card"><h2 data-i18n="resultTitle">&#x420;&#x435;&#x437;&#x443;&#x43b;&#x44c;&#x442;&#x430;&#x442;</h2><div class="preview" id="preview"><div class="empty"><div class="icon">&#x1f5bc;&#xfe0f;</div><div data-i18n="emptyResult">&#x417;&#x434;&#x435;&#x441;&#x44c; &#x43f;&#x43e;&#x44f;&#x432;&#x438;&#x442;&#x441;&#x44f; &#x441;&#x433;&#x435;&#x43d;&#x435;&#x440;&#x438;&#x440;&#x43e;&#x432;&#x430;&#x43d;&#x43d;&#x43e;&#x435; &#x438;&#x437;&#x43e;&#x431;&#x440;&#x430;&#x436;&#x435;&#x43d;&#x438;&#x435;</div></div></div></section>
 </div></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
+const SUPABASE_URL = "https://egffzzsidualferlscno.supabase.co";
+const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_H9nUc3ceJJjaHKdVKKCm_A_TQIZZHCF";
 
+const supabaseClient = window.supabase.createClient(
+  SUPABASE_URL,
+  SUPABASE_PUBLISHABLE_KEY
+);
+</script>
+<script>
 const translations={
   ru:{
     sourceTitle:'1. \u0418\u0441\u0445\u043e\u0434\u043d\u043e\u0435 \u0444\u043e\u0442\u043e',
