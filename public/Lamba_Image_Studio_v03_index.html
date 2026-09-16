@@ -7,7 +7,7 @@
 <style>
 :root{--bg:#0b0d12;--card:#151923;--text:#f5f7fb;--muted:#9aa3b2;--accent:#8b5cf6;--border:#2a3040}
 *{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at top,#202638,#0b0d12 48%);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
-.wrap{max-width:1050px;margin:auto;padding:22px 16px 40px}.head{display:flex;justify-content:space-between;align-items:center;margin-bottom:18px}.logo{font-size:24px;font-weight:800}.logo span{color:#a78bfa}.head-actions{display:flex;align-items:center;gap:8px}.lang-btn{width:auto;padding:7px 10px;font-size:12px;font-weight:750;background:#242a37;color:#e8ebf1;border:1px solid var(--border);border-radius:999px;cursor:pointer}.badge{font-size:12px;color:#c4b5fd;background:#251b3e;border:1px solid #49337a;padding:7px 10px;border-radius:999px}
+.wrap{max-width:1050px;margin:auto;padding:22px 16px 40px}.head{display:flex;justify-content:space-between;align-items:center;margin-bottom:18px}.logo{font-size:24px;font-weight:800}.logo span{color:#a78bfa}.head-actions{display:flex;align-items:center;gap:8px}.lang-btn{width:auto;padding:7px 10px;font-size:12px;font-weight:750;background:#242a37;color:#e8ebf1;border:1px solid var(--border);border-radius:999px;cursor:pointer}.badge{font-size:12px;color:#c4b5fd;background:#251b3e;border:1px solid #49337a;padding:7px 10px;border-radius:999px}.credits-badge{font-size:12px;color:#dbeafe;background:#172033;border:1px solid #334155;padding:7px 10px;border-radius:999px;font-weight:800}.credits-badge[hidden]{display:none}
 .grid{display:grid;grid-template-columns:390px 1fr;gap:16px}@media(max-width:760px){.grid{grid-template-columns:1fr}}
 .card{background:#151923eb;border:1px solid var(--border);border-radius:20px;padding:16px;box-shadow:0 12px 40px #0005}h2{font-size:16px;margin:0 0 12px}
 .drop{height:210px;border:1px dashed #4a5365;border-radius:16px;display:flex;align-items:center;justify-content:center;text-align:center;color:var(--muted);overflow:hidden;background:#10141c;cursor:pointer}.drop img{width:100%;height:100%;object-fit:cover}.drop.zoomed{position:fixed;z-index:1000;top:5vh;left:5vw;width:90vw;height:90vh;background:#070910;border:2px solid #8b5cf6;box-shadow:0 20px 80px #000b}.drop.zoomed img{object-fit:contain}.drop.zoomed:after{content:"\041d\0430\0436\043c\0438 \0435\0449\0451 \0440\0430\0437, \0447\0442\043e\0431\044b \0437\0430\043a\0440\044b\0442\044c";position:absolute;bottom:12px;left:50%;transform:translateX(-50%);background:#000b;color:#fff;padding:7px 11px;border-radius:999px;font-size:12px;pointer-events:none}.drop strong{color:#fff;display:block;margin-bottom:6px}
@@ -19,7 +19,7 @@ textarea{width:100%;min-height:105px;resize:vertical;background:#10141c;color:#f
 </head>
 <body>
 <div class="wrap">
-<div class="head"><div class="logo">Lamba <span>Image Studio</span></div><div class="head-actions"><button class="lang-btn" id="langToggle" type="button">RU / EN</button><div class="badge">v0.3 iPad Ready</div></div></div>
+<div class="head"><div class="logo">Lamba <span>Image Studio</span></div><div class="head-actions"><button class="lang-btn" id="langToggle" type="button">RU / EN</button><div class="credits-badge" id="creditsBadge">💳 Кредиты: 0</div><div class="badge">v0.3 iPad Ready</div></div></div>
 <div style="margin:12px 0;padding:12px 14px;border:1px solid #2a3040;border-radius:14px;background:#151923;">
   <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
     <input id="authEmail" type="email" placeholder="Email"
@@ -76,6 +76,8 @@ const supabaseClient = window.supabase.createClient(
 <script>
 const translations={
   ru:{
+    credits:'💳 Кредиты: {n}',
+    buyCredits:'💳 Кредиты закончились. Купите пакет генераций.',
     sourceTitle:'1. \u0418\u0441\u0445\u043e\u0434\u043d\u043e\u0435 \u0444\u043e\u0442\u043e',
     choosePhoto:'\u041d\u0430\u0436\u043c\u0438, \u0447\u0442\u043e\u0431\u044b \u0432\u044b\u0431\u0440\u0430\u0442\u044c \u0444\u043e\u0442\u043e',
     styleTitle:'2. \u041e\u0431\u0440\u0430\u0437',
@@ -119,6 +121,9 @@ const translations={
     clear:'Clear',
     generate:'\u2728 Generate',
     emptyResult:'The generated image will appear here',
+    credits:'💳 Credits: {n}',
+    buyCredits:'💳 No credits left. Buy a generation package.',
+    buy10:'Buy 10 generations',
     note:'Server is configured separately. The AI key is not stored in HTML.',
     styles:{
       '\u0441\u043f\u043e\u0440\u0442\u0438\u0432\u043d\u044b\u0439 \u043e\u0431\u0440\u0430\u0437':'Sport',
@@ -215,6 +220,7 @@ function applyLanguage(){
   document.getElementById('langToggle').textContent=currentLang==='ru'?'RU / EN':'EN / RU';
   const saveImage=document.getElementById('saveImage');
   if(saveImage) saveImage.textContent=currentLang==='ru'?'💾 Сохранить фото':'💾 Save photo';
+  if(!creditsBadge.hidden) setCredits(currentCredits);
 }
 
 function toggleLanguage(){
@@ -226,11 +232,57 @@ function toggleLanguage(){
 document.getElementById('langToggle').onclick=toggleLanguage;
 
 const API_BASE=localStorage.getItem('lamba_api_url')||window.location.origin;
+const creditsBadge=document.getElementById('creditsBadge');
+let currentCredits=0;
+
+function setCredits(value){
+  currentCredits=Math.max(0,Number(value)||0);
+  const t=translations[currentLang];
+  const label=(t.credits||'💳 Credits: {n}').replace('{n}',currentCredits);
+  creditsBadge.textContent=label;
+  creditsBadge.hidden=false;
+}
+
+async function refreshCredits(){
+  const {data:{session}}=await supabaseClient.auth.getSession();
+  if(!session){
+    creditsBadge.hidden=true;
+    currentCredits=0;
+    return 0;
+  }
+  const {data,error}=await supabaseClient
+    .from('user_credits')
+    .select('credits')
+    .eq('user_id',session.user.id)
+    .maybeSingle();
+  if(error) throw error;
+  const value=data?.credits ?? 0;
+  setCredits(value);
+  return value;
+}
+
+async function consumeCredit(){
+  const {data,error}=await supabaseClient.rpc('consume_credit');
+  if(error) throw error;
+  const value=Array.isArray(data)?data[0]:data;
+  setCredits(value);
+  return Number(value);
+}
+
+async function refundCredit(){
+  const {data,error}=await supabaseClient.rpc('refund_credit');
+  if(error) throw error;
+  const value=Array.isArray(data)?data[0]:data;
+  setCredits(value);
+  return Number(value);
+}
+
 const file=document.getElementById('file'),source=document.getElementById('source'),dropText=document.getElementById('dropText');
 const status=document.getElementById('status'),prompt=document.getElementById('prompt'),preview=document.getElementById('preview'),gen=document.getElementById('generate');
 const photoDrop=document.getElementById('photoDrop'),styleToggle=document.getElementById('styleToggle'),styles=document.getElementById('styles'),selectedStyleLabel=document.getElementById('selectedStyleLabel'),styleArrow=document.getElementById('styleArrow');
 let selectedStyle='\u0441\u043f\u043e\u0440\u0442\u0438\u0432\u043d\u044b\u0439 \u043e\u0431\u0440\u0430\u0437';
 applyLanguage();
+refreshCredits().catch(()=>{});
 file.onchange=()=>{const f=file.files?.[0];if(!f)return;if(!f.type.startsWith('image/')){status.textContent=translations[currentLang].invalidFile;return}if(source.src)URL.revokeObjectURL(source.src);source.src=URL.createObjectURL(f);source.hidden=false;dropText.hidden=true;photoDrop.classList.remove('zoomed');status.textContent=translations[currentLang].loaded};
 photoDrop.addEventListener('click',e=>{if(e.target===source)return;file.click()});
 photoDrop.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();file.click()}});
@@ -256,6 +308,7 @@ document.getElementById('registerBtn').onclick=async()=>{
   }
 
   authStatus.textContent='Регистрация выполнена. Теперь войдите.';
+  await refreshCredits();
 };
 
 document.getElementById('loginBtn').onclick=async()=>{
@@ -279,37 +332,79 @@ document.getElementById('loginBtn').onclick=async()=>{
   }
 
   authStatus.textContent='Вы вошли в Lamba Image Studio ✅';
+  await refreshCredits();
 };
-  gen.onclick=async()=>{
- const {data:{session}}=await supabaseClient.auth.getSession();
- if(!session){
-   status.textContent=currentLang==='ru'
-     ? '🔒 Сначала зарегистрируйтесь или войдите в аккаунт.'
-     : '🔒 Please register or log in first.';
-   document.getElementById('authEmail').focus();
-   return;
- }
- if(!file.files?.[0]){status.textContent=translations[currentLang].chooseFirst;return}
- if(!API_BASE){status.textContent=translations[currentLang].noApi;return}
- gen.disabled=true;status.textContent=translations[currentLang].sending;
- const fd=new FormData();fd.append('image',file.files[0]);fd.append('style',selectedStyle);fd.append('prompt',prompt.value);
- try{
-  const r=await fetch(API_BASE.replace(/\/$/,'')+'/api/generate',{method:'POST',body:fd});
-  if(!r.ok){const data=await r.json().catch(()=>({}));throw new Error(data.error||('HTTP '+r.status));}
-  const blob=await r.blob();
-  if(!blob.size)throw new Error('\u0421\u0435\u0440\u0432\u0435\u0440 \u043d\u0435 \u0432\u0435\u0440\u043d\u0443\u043b \u0438\u0437\u043e\u0431\u0440\u0430\u0436\u0435\u043d\u0438\u0435.');
-  if(preview.dataset.objectUrl)URL.revokeObjectURL(preview.dataset.objectUrl);
-  const url=URL.createObjectURL(blob);
-  preview.dataset.objectUrl=url;
-  preview.innerHTML='<img alt="\u0421\u0433\u0435\u043d\u0435\u0440\u0438\u0440\u043e\u0432\u0430\u043d\u043d\u044b\u0439 \u0440\u0435\u0437\u0443\u043b\u044c\u0442\u0430\u0442" src="'+url+'">';
-   let saveBtn=document.getElementById('saveImage');
-   if(saveBtn) saveBtn.remove();
-   saveBtn=document.createElement('button');
-   saveBtn.id='saveImage';
-   saveBtn.className='secondary';
-   saveBtn.style.marginTop='10px';
-   saveBtn.textContent=currentLang==='ru'?'💾 Сохранить фото':'💾 Save photo';
-   saveBtn.onclick=()=>{
+gen.onclick=async()=>{
+  const {data:{session},error:sessionError}=await supabaseClient.auth.getSession();
+  if(sessionError || !session){
+    status.textContent=currentLang==='ru'
+      ? '🔒 Сначала зарегистрируйтесь или войдите в аккаунт.'
+      : '🔒 Please register or log in first.';
+    document.getElementById('authEmail').focus();
+    return;
+  }
+
+  if(!file.files?.[0]){
+    status.textContent=translations[currentLang].chooseFirst;
+    return;
+  }
+
+  let balance;
+  try{
+    balance=await refreshCredits();
+  }catch(e){
+    status.textContent='❌ '+e.message;
+    return;
+  }
+
+  if(balance<=0){
+    status.textContent=translations[currentLang].buyCredits;
+    return;
+  }
+
+  if(!API_BASE){
+    status.textContent=translations[currentLang].noApi;
+    return;
+  }
+
+  gen.disabled=true;
+  status.textContent=translations[currentLang].sending;
+  let charged=false;
+
+  try{
+    await consumeCredit();
+    charged=true;
+
+    const fd=new FormData();
+    fd.append('image',file.files[0]);
+    fd.append('style',selectedStyle);
+    fd.append('prompt',prompt.value);
+
+    const r=await fetch(API_BASE.replace(/\/$/,'')+'/api/generate',{
+      method:'POST',
+      body:fd
+    });
+    if(!r.ok){
+      const data=await r.json().catch(()=>({}));
+      throw new Error(data.error||('HTTP '+r.status));
+    }
+
+    const blob=await r.blob();
+    if(!blob.size) throw new Error('Сервер не вернул изображение.');
+
+    if(preview.dataset.objectUrl) URL.revokeObjectURL(preview.dataset.objectUrl);
+    const url=URL.createObjectURL(blob);
+    preview.dataset.objectUrl=url;
+    preview.innerHTML='<img alt="Сгенерированный результат" src="'+url+'">';
+
+    let saveBtn=document.getElementById('saveImage');
+    if(saveBtn) saveBtn.remove();
+    saveBtn=document.createElement('button');
+    saveBtn.id='saveImage';
+    saveBtn.className='secondary';
+    saveBtn.style.marginTop='10px';
+    saveBtn.textContent=currentLang==='ru'?'💾 Сохранить фото':'💾 Save photo';
+    saveBtn.onclick=()=>{
       const a=document.createElement('a');
       a.href=url;
       a.download='lamba-image.png';
@@ -318,9 +413,18 @@ document.getElementById('loginBtn').onclick=async()=>{
       a.click();
       a.remove();
     };
-   preview.parentElement.appendChild(saveBtn);  status.textContent=translations[currentLang].done;
- }catch(e){status.textContent='\u274c '+e.message}
- finally{gen.disabled=false}
+    preview.parentElement.appendChild(saveBtn);
+
+    await refreshCredits();
+    status.textContent=translations[currentLang].done;
+  }catch(e){
+    if(charged){
+      try{ await refundCredit(); }catch(_){}
+    }
+    status.textContent='❌ '+e.message;
+  }finally{
+    gen.disabled=false;
+  }
 };
 
 </script>
