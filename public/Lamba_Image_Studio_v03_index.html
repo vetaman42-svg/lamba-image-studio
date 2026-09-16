@@ -359,6 +359,74 @@ gen.onclick=async()=>{
 
   if(balance<=0){
     status.textContent=translations[currentLang].buyCredits;
+
+    let buyBtn=document.getElementById('buyCreditsBtn');
+
+    if(!buyBtn){
+      buyBtn=document.createElement('button');
+      buyBtn.id='buyCreditsBtn';
+      buyBtn.className='primary';
+      buyBtn.style.marginTop='10px';
+      buyBtn.textContent=currentLang==='ru'
+        ? '💳 Купить 10 генераций — $2.99'
+        : '💳 Buy 10 generations — $2.99';
+
+      buyBtn.onclick=async()=>{
+        buyBtn.disabled=true;
+        buyBtn.textContent=currentLang==='ru'
+          ? '⏳ Переход к оплате…'
+          : '⏳ Opening payment…';
+
+        try{
+          const {data:{session}}=await supabaseClient.auth.getSession();
+
+          if(!session){
+            throw new Error(
+              currentLang==='ru'
+                ? 'Сначала войдите в аккаунт.'
+                : 'Please log in first.'
+            );
+          }
+
+          const response=await fetch(
+            API_BASE.replace(/\/$/,'')+'/api/create-checkout-session',
+            {
+              method:'POST',
+              headers:{
+                'Content-Type':'application/json',
+                'Authorization':'Bearer '+session.access_token
+              },
+              body:JSON.stringify({
+                package:'10_generations',
+                amount:299
+              })
+            }
+          );
+
+          const data=await response.json();
+
+          if(!response.ok){
+            throw new Error(data.error||'Payment error');
+          }
+
+          if(!data.url){
+            throw new Error('Payment URL was not returned.');
+          }
+
+          window.location.href=data.url;
+
+        }catch(e){
+          status.textContent='❌ '+e.message;
+          buyBtn.disabled=false;
+          buyBtn.textContent=currentLang==='ru'
+            ? '💳 Купить 10 генераций — $2.99'
+            : '💳 Buy 10 generations — $2.99';
+        }
+      };
+
+      gen.parentElement.appendChild(buyBtn);
+    }
+
     return;
   }
 
