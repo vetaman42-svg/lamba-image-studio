@@ -281,6 +281,14 @@ document.getElementById('loginBtn').onclick=async()=>{
   authStatus.textContent='Вы вошли в Lamba Image Studio ✅';
 };
   gen.onclick=async()=>{
+ const {data:{session}}=await supabaseClient.auth.getSession();
+ if(!session){
+   status.textContent=currentLang==='ru'
+     ? '🔒 Сначала зарегистрируйтесь или войдите в аккаунт.'
+     : '🔒 Please register or log in first.';
+   document.getElementById('authEmail').focus();
+   return;
+ }
  if(!file.files?.[0]){status.textContent=translations[currentLang].chooseFirst;return}
  if(!API_BASE){status.textContent=translations[currentLang].noApi;return}
  gen.disabled=true;status.textContent=translations[currentLang].sending;
