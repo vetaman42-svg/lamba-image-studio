@@ -389,7 +389,7 @@ gen.onclick=async()=>{
           }
 
           const response=await fetch(
-            API_BASE.replace(/\/$/,'')+'/api/create-checkout-session',
+            API_BASE.replace(/\/$/,'')+'/api/payment/create',
             {
               method:'POST',
               headers:{
