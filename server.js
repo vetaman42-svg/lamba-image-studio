@@ -234,7 +234,9 @@ app.post(['/api/payment/create', '/api/create-checkout-session'], async (req, re
 
 // WayForPay sends payment status here.
 app.post('/api/payment/wayforpay-callback', async (req, res) => {console.log('WAYFORPAY CALLBACK:', req.body);
-  try {
+console.log('WAYFORPAY HEADERS:', req.headers['content-type']);
+console.log('WAYFORPAY CALLBACK BODY:', req.body);
+                                                                 try {
     if (!W4P_SECRET) {
       return res.status(500).json({ error: 'WAYFORPAY_SECRET_KEY не настроен.' });
     }
