@@ -124,7 +124,7 @@ async function addCreditsToUser(userId, amount) {
 }
 
 // Create a WayForPay invoice for 10 image generations for $2.99.
-app.post('/api/create-checkout-session', async (req, res) => {
+app.post(['/api/payment/create', '/api/create-checkout-session'], async (req, res) => {
   try {
     if (!wayForPayReady()) {
       return res.status(500).json({
@@ -210,13 +210,21 @@ app.post('/api/create-checkout-session', async (req, res) => {
     });
 
     res.json({
-      ok: true,
-      orderReference,
-      url: data.invoiceUrl,
-      amount: PAYMENT_AMOUNT_USD,
-      currency: 'USD',
-      credits: PAYMENT_CREDITS
-    });
+  ok: true,
+  orderReference,
+  url: data.invoiceUrl,
+  invoiceUrl: data.invoiceUrl,
+  amount: PAYMENT_AMOUNT_USD,
+  currency: 'USD',
+  credits: PAYMENT_CREDITS
+});
+      
+      
+      
+      
+    
+      
+  
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err?.message || 'Ошибка создания платежа.' });
