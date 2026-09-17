@@ -1,4 +1,3 @@
-
 import express from 'express';
 import multer from 'multer';
 import Replicate from 'replicate';
@@ -19,6 +18,10 @@ const W4P_SECRET = process.env.WAYFORPAY_SECRET_KEY || '';
 const W4P_DOMAIN = process.env.WAYFORPAY_DOMAIN || '';
 const W4P_RETURN_URL = process.env.WAYFORPAY_RETURN_URL || '';
 const W4P_SERVICE_URL = process.env.WAYFORPAY_SERVICE_URL || '';
+
+// Supabase configuration. Keep the service-role key only in Render Environment Variables.
+const SUPABASE_URL = (process.env.SUPABASE_URL || '').replace(/\/$/, '');
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 
 const PAYMENT_AMOUNT_USD = 2.99;
 const PAYMENT_CREDITS = 10;
@@ -45,6 +48,81 @@ function wayForPayReady() {
   return !!(W4P_MERCHANT && W4P_SECRET && W4P_DOMAIN && W4P_RETURN_URL && W4P_SERVICE_URL);
 }
 
+function supabaseReady() {
+  return !!(SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY);
+}
+
+async function getAuthenticatedSupabaseUser(req) {
+  if (!supabaseReady()) {
+    throw new Error('Supabase server credentials не настроены.');
+  }
+
+  const authHeader = String(req.headers.authorization || '');
+  if (!authHeader.startsWith('Bearer ')) {
+    return null;
+  }
+
+  const response = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
+    headers: {
+      apikey: SUPABASE_SERVICE_ROLE_KEY,
+      Authorization: authHeader
+    }
+  });
+
+  if (!response.ok) {
+    return null;
+  }
+
+  return await response.json();
+}
+
+async function addCreditsToUser(userId, amount) {
+  if (!supabaseReady()) {
+    throw new Error('Supabase server credentials не настроены.');
+  }
+
+  const headers = {
+    apikey: SUPABASE_SERVICE_ROLE_KEY,
+    Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+    'Content-Type': 'application/json'
+  };
+
+  // Read the current balance from the existing public.profiles table.
+  const readResponse = await fetch(
+    `${SUPABASE_URL}/rest/v1/profiles?id=eq.${encodeURIComponent(userId)}&select=id,credits`,
+    { headers }
+  );
+
+  if (!readResponse.ok) {
+    throw new Error(`Supabase read credits failed: HTTP ${readResponse.status}`);
+  }
+
+  const rows = await readResponse.json();
+  if (!Array.isArray(rows) || !rows.length) {
+    throw new Error('Профиль пользователя не найден в Supabase.');
+  }
+
+  const currentCredits = Number(rows[0].credits) || 0;
+  const newCredits = currentCredits + Number(amount);
+
+  const updateResponse = await fetch(
+    `${SUPABASE_URL}/rest/v1/profiles?id=eq.${encodeURIComponent(userId)}`,
+    {
+      method: 'PATCH',
+      headers: { ...headers, Prefer: 'return=representation' },
+      body: JSON.stringify({ credits: newCredits })
+    }
+  );
+
+  if (!updateResponse.ok) {
+    const details = await updateResponse.text();
+    throw new Error(`Supabase update credits failed: HTTP ${updateResponse.status} ${details}`);
+  }
+
+  const updatedRows = await updateResponse.json();
+  return Number(updatedRows?.[0]?.credits ?? newCredits);
+}
+
 // Create a WayForPay invoice for 10 image generations for $2.99.
 app.post('/api/payment/create', async (req, res) => {
   try {
@@ -54,9 +132,16 @@ app.post('/api/payment/create', async (req, res) => {
       });
     }
 
+    const user = await getAuthenticatedSupabaseUser(req);
+    if (!user?.id) {
+      return res.status(401).json({
+        error: 'Сначала войдите в аккаунт Lamba Image Studio.'
+      });
+    }
+
     const orderReference = `LAMBA10-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
     const orderDate = Math.floor(Date.now() / 1000);
-    const email = String(req.body?.email || '').trim();
+    const email = String(user.email || req.body?.email || '').trim();
 
     const productName = ['Lamba Image Studio — 10 генераций'];
     const productCount = [1];
@@ -113,11 +198,14 @@ app.post('/api/payment/create', async (req, res) => {
 
     payments.set(orderReference, {
       orderReference,
+      userId: user.id,
       amount: PAYMENT_AMOUNT_USD,
       currency: 'USD',
       credits: PAYMENT_CREDITS,
       email,
       status: 'Pending',
+      paid: false,
+      credited: false,
       createdAt: Date.now()
     });
 
@@ -136,7 +224,7 @@ app.post('/api/payment/create', async (req, res) => {
 });
 
 // WayForPay sends payment status here.
-app.post('/api/payment/wayforpay-callback', (req, res) => {
+app.post('/api/payment/wayforpay-callback', async (req, res) => {
   try {
     if (!W4P_SECRET) {
       return res.status(500).json({ error: 'WAYFORPAY_SECRET_KEY не настроен.' });
@@ -166,7 +254,16 @@ app.post('/api/payment/wayforpay-callback', (req, res) => {
 
       // Only an Approved payment gets the 10-generation package.
       payment.paid = body.transactionStatus === 'Approved' && String(body.reasonCode) === '1100';
-      payment.creditsToAdd = payment.paid ? PAYMENT_CREDITS : 0;
+
+      if (payment.paid && !payment.credited) {
+        const newBalance = await addCreditsToUser(payment.userId, PAYMENT_CREDITS);
+        payment.credited = true;
+        payment.creditsToAdd = PAYMENT_CREDITS;
+        payment.newBalance = newBalance;
+        console.log(`WayForPay: +${PAYMENT_CREDITS} credits for ${payment.userId}; balance=${newBalance}`);
+      } else if (!payment.paid) {
+        payment.creditsToAdd = 0;
+      }
     }
 
     const time = Math.floor(Date.now() / 1000);
@@ -202,6 +299,7 @@ app.get('/api/payment/status/:orderReference', (req, res) => {
     status: payment.status,
     paid: !!payment.paid,
     creditsToAdd: payment.creditsToAdd || 0,
+    newBalance: payment.newBalance ?? null,
     amount: payment.amount,
     currency: payment.currency
   });
@@ -292,3 +390,4 @@ app.post('/api/video', upload.single('image'), async (req, res) => {
   }
 });
 app.listen(PORT, () => console.log(`Lamba Remote Image Editor listening on port ${PORT}`));
+
