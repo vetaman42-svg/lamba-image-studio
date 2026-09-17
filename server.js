@@ -124,7 +124,7 @@ async function addCreditsToUser(userId, amount) {
 }
 
 // Create a WayForPay invoice for 10 image generations for $2.99.
-app.post('/api/payment/create', async (req, res) => {
+app.post('/api/create-checkout-session', async (req, res) => {
   try {
     if (!wayForPayReady()) {
       return res.status(500).json({
