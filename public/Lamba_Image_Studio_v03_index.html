@@ -403,17 +403,30 @@ gen.onclick=async()=>{
             }
           );
 
-          const data=await response.json();
+          const data=await response.json().catch(()=>({}));
 
           if(!response.ok){
             throw new Error(data.error||'Payment error');
           }
 
-          if(!data.url){
-            throw new Error('Payment URL was not returned.');
+          const paymentUrl=typeof data.url==='string' ? data.url.trim() : '';
+
+          if(!paymentUrl){
+            throw new Error('Payment URL was not returned by the server.');
           }
 
-          window.location.href=data.url;
+          let safePaymentUrl;
+          try{
+            safePaymentUrl=new URL(paymentUrl, window.location.origin);
+          }catch(_){
+            throw new Error('The server returned an invalid payment URL.');
+          }
+
+          if(!['http:','https:'].includes(safePaymentUrl.protocol)){
+            throw new Error('The server returned an unsupported payment URL.');
+          }
+
+          window.location.assign(safePaymentUrl.href);
 
         }catch(e){
           status.textContent='❌ '+e.message;
