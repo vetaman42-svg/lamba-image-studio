@@ -1,7 +1,7 @@
 import express from 'express';
 import multer from 'multer';
 import Replicate from 'replicate';
-
+import crypto from 'crypto';
 import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
@@ -11,7 +11,7 @@ const upload = multer({ limits: { fileSize: 20 * 1024 * 1024 } });
 const PORT = process.env.PORT || 3000;
 const TOKEN = process.env.REPLICATE_API_TOKEN;
 const replicate = TOKEN ? new Replicate({ auth: TOKEN }) : null;
-
+app.use(express.json());
 app.use(express.static('.'));
 
 app.get('/api/health', (_req, res) => {
