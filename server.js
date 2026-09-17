@@ -1,3 +1,4 @@
+
 import express from 'express';
 import multer from 'multer';
 import Replicate from 'replicate';
@@ -11,11 +12,199 @@ const upload = multer({ limits: { fileSize: 20 * 1024 * 1024 } });
 const PORT = process.env.PORT || 3000;
 const TOKEN = process.env.REPLICATE_API_TOKEN;
 const replicate = TOKEN ? new Replicate({ auth: TOKEN }) : null;
+
+// WayForPay configuration. Keep the secret only in Render Environment Variables.
+const W4P_MERCHANT = process.env.WAYFORPAY_MERCHANT_ACCOUNT || '';
+const W4P_SECRET = process.env.WAYFORPAY_SECRET_KEY || '';
+const W4P_DOMAIN = process.env.WAYFORPAY_DOMAIN || '';
+const W4P_RETURN_URL = process.env.WAYFORPAY_RETURN_URL || '';
+const W4P_SERVICE_URL = process.env.WAYFORPAY_SERVICE_URL || '';
+
+const PAYMENT_AMOUNT_USD = 2.99;
+const PAYMENT_CREDITS = 10;
+
+// Temporary payment state. For production, replace this Map with Supabase/DB
+// so payments and credits survive a Render restart.
+const payments = new Map();
+
 app.use(express.json());
 app.use(express.static('.'));
 
 app.get('/api/health', (_req, res) => {
   res.json({ ok: true, provider: 'replicate', model: 'black-forest-labs/flux-kontext-pro', tokenConfigured: !!TOKEN });
+});
+
+function wayForPaySignature(parts) {
+  return crypto
+    .createHmac('md5', W4P_SECRET)
+    .update(parts.join(';'), 'utf8')
+    .digest('hex');
+}
+
+function wayForPayReady() {
+  return !!(W4P_MERCHANT && W4P_SECRET && W4P_DOMAIN && W4P_RETURN_URL && W4P_SERVICE_URL);
+}
+
+// Create a WayForPay invoice for 10 image generations for $2.99.
+app.post('/api/payment/create', async (req, res) => {
+  try {
+    if (!wayForPayReady()) {
+      return res.status(500).json({
+        error: 'WayForPay не настроен. Добавь WAYFORPAY_MERCHANT_ACCOUNT, WAYFORPAY_SECRET_KEY, WAYFORPAY_DOMAIN, WAYFORPAY_RETURN_URL и WAYFORPAY_SERVICE_URL в Render.'
+      });
+    }
+
+    const orderReference = `LAMBA10-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
+    const orderDate = Math.floor(Date.now() / 1000);
+    const email = String(req.body?.email || '').trim();
+
+    const productName = ['Lamba Image Studio — 10 генераций'];
+    const productCount = [1];
+    const productPrice = [PAYMENT_AMOUNT_USD];
+
+    const signature = wayForPaySignature([
+      W4P_MERCHANT,
+      W4P_DOMAIN,
+      orderReference,
+      orderDate,
+      PAYMENT_AMOUNT_USD,
+      'USD',
+      ...productName,
+      ...productCount,
+      ...productPrice
+    ]);
+
+    const payload = {
+      transactionType: 'CREATE_INVOICE',
+      merchantAccount: W4P_MERCHANT,
+      merchantAuthType: 'SimpleSignature',
+      merchantDomainName: W4P_DOMAIN,
+      merchantSignature: signature,
+      apiVersion: 1,
+      language: 'RU',
+      serviceUrl: W4P_SERVICE_URL,
+      returnUrl: W4P_RETURN_URL,
+      orderReference,
+      orderDate,
+      amount: PAYMENT_AMOUNT_USD,
+      currency: 'USD',
+      orderTimeout: 86400,
+      productName,
+      productPrice,
+      productCount,
+      ...(email ? { clientEmail: email } : {})
+    };
+
+    const response = await fetch('https://api.wayforpay.com/api', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    const data = await response.json();
+
+    if (!response.ok || !data.invoiceUrl) {
+      console.error('WayForPay create invoice:', data);
+      return res.status(502).json({
+        error: data?.reason || data?.reasonCode || 'WayForPay не создал счёт.',
+        details: data
+      });
+    }
+
+    payments.set(orderReference, {
+      orderReference,
+      amount: PAYMENT_AMOUNT_USD,
+      currency: 'USD',
+      credits: PAYMENT_CREDITS,
+      email,
+      status: 'Pending',
+      createdAt: Date.now()
+    });
+
+    res.json({
+      ok: true,
+      orderReference,
+      invoiceUrl: data.invoiceUrl,
+      amount: PAYMENT_AMOUNT_USD,
+      currency: 'USD',
+      credits: PAYMENT_CREDITS
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err?.message || 'Ошибка создания платежа.' });
+  }
+});
+
+// WayForPay sends payment status here.
+app.post('/api/payment/wayforpay-callback', (req, res) => {
+  try {
+    if (!W4P_SECRET) {
+      return res.status(500).json({ error: 'WAYFORPAY_SECRET_KEY не настроен.' });
+    }
+
+    const body = req.body || {};
+    const expected = wayForPaySignature([
+      body.merchantAccount || '',
+      body.orderReference || '',
+      body.amount || '',
+      body.currency || '',
+      body.authCode || '',
+      body.cardPan || '',
+      body.transactionStatus || '',
+      body.reasonCode || ''
+    ]);
+
+    if (!body.merchantSignature || body.merchantSignature !== expected) {
+      return res.status(400).json({ error: 'Неверная подпись WayForPay.' });
+    }
+
+    const payment = payments.get(body.orderReference);
+    if (payment) {
+      payment.status = body.transactionStatus || 'Unknown';
+      payment.reasonCode = body.reasonCode || '';
+      payment.updatedAt = Date.now();
+
+      // Only an Approved payment gets the 10-generation package.
+      payment.paid = body.transactionStatus === 'Approved' && String(body.reasonCode) === '1100';
+      payment.creditsToAdd = payment.paid ? PAYMENT_CREDITS : 0;
+    }
+
+    const time = Math.floor(Date.now() / 1000);
+    const status = 'accept';
+    const signature = wayForPaySignature([
+      body.orderReference || '',
+      status,
+      time
+    ]);
+
+    res.json({
+      orderReference: body.orderReference,
+      status,
+      time,
+      signature
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Ошибка обработки уведомления WayForPay.' });
+  }
+});
+
+// Frontend can check the result of a payment by orderReference.
+app.get('/api/payment/status/:orderReference', (req, res) => {
+  const payment = payments.get(req.params.orderReference);
+  if (!payment) {
+    return res.status(404).json({ error: 'Платёж не найден.' });
+  }
+
+  res.json({
+    ok: true,
+    orderReference: payment.orderReference,
+    status: payment.status,
+    paid: !!payment.paid,
+    creditsToAdd: payment.creditsToAdd || 0,
+    amount: payment.amount,
+    currency: payment.currency
+  });
 });
 
 app.post('/api/generate', upload.single('image'), async (req, res) => {
