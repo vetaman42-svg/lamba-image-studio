@@ -3,6 +3,11 @@
   "version": "2.0.0",
   "private": true,
   "type": "module",
-  "scripts": {"start": "node server.js"},
-  "dependencies": {"express": "^5.1.0", "multer": "^2.0.2", "replicate": "^1.0.0","stripe": "^18"
+  "scripts": { "start": "node server.js" },
+  "dependencies": {
+    "express": "^5.1.0",
+    "multer": "^2.0.2",
+    "replicate": "^1.0.0",
+    "stripe": "^18"
+  }
 }
