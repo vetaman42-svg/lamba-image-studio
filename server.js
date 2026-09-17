@@ -260,8 +260,10 @@ app.post('/api/payment/wayforpay-callback', async (req, res) => {console.log('WA
       payment.reasonCode = body.reasonCode || '';
       payment.updatedAt = Date.now();
 
-      // Only an Approved payment gets the 10-generation package.
-      payment.paid = body.transactionStatus === 'Approved' && String(body.reasonCode) === '1100';
+      // Successful WayForPay payment gets the 10-generation package.
+      payment.paid =
+        body.transactionStatus === 'Approved' ||
+        String(body.reasonCode) === '1100';
 
       if (payment.paid && !payment.credited) {
         const newBalance = await addCreditsToUser(payment.userId, PAYMENT_CREDITS);
@@ -398,4 +400,6 @@ app.post('/api/video', upload.single('image'), async (req, res) => {
   }
 });
 app.listen(PORT, "0.0.0.0", () => console.log(`Lamba Remote Image Editor listening on 0.0.0.0:${PORT}`));
+
+
 
