@@ -212,7 +212,7 @@ app.post('/api/create-checkout-session', async (req, res) => {
     res.json({
       ok: true,
       orderReference,
-      invoiceUrl: data.invoiceUrl,
+      url: data.invoiceUrl,
       amount: PAYMENT_AMOUNT_USD,
       currency: 'USD',
       credits: PAYMENT_CREDITS
