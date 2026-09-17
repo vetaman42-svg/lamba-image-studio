@@ -389,5 +389,5 @@ app.post('/api/video', upload.single('image'), async (req, res) => {
     });
   }
 });
-app.listen(PORT, () => console.log(`Lamba Remote Image Editor listening on port ${PORT}`));
+app.listen(PORT, "0.0.0.0", () => console.log(`Lamba Remote Image Editor listening on 0.0.0.0:${PORT}`));
 
