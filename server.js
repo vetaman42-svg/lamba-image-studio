@@ -264,9 +264,8 @@ console.log('WAYFORPAY CALLBACK BODY:', req.body);
       payment.updatedAt = Date.now();
 
       // Successful WayForPay payment gets the 10-generation package.
-      payment.paid =
-        body.transactionStatus === 'Approved' ||
-        String(body.reasonCode) === '1100';
+      payment.paid = body.transactionStatus === 'Approved';
+      
 
       if (payment.paid && !payment.credited) {
         const newBalance = await addCreditsToUser(payment.userId, PAYMENT_CREDITS);
