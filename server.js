@@ -31,6 +31,7 @@ const PAYMENT_CREDITS = 10;
 const payments = new Map();
 
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 app.use(express.static('.'));
 
 app.get('/api/health', (_req, res) => {
