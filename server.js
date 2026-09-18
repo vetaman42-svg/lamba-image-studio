@@ -283,44 +283,34 @@ app.post('/api/payment/wayforpay-callback', async (req, res) => {
 
     let body = req.body || {};
 
-    // WayForPay should send JSON, but in our current setup
-    // the request arrives as application/x-www-form-urlencoded
-    // with the whole JSON object used as the field name.
-    if (!body.orderReference) {
+    try {
+      // WayForPay normally sends JSON.
       if (typeof body === 'string') {
-        try {
-          body = JSON.parse(body);
-        } catch (e) {
-          console.error('WayForPay string JSON parse error:', e);
-        }
+        body = JSON.parse(body.trim());
       }
 
+      // Sometimes application/x-www-form-urlencoded puts the
+      // whole JSON object into the field name.
       if (!body.orderReference && body && typeof body === 'object') {
         const keys = Object.keys(body);
 
         if (keys.length === 1) {
-          const raw = String(keys[0]).trim();
+          let raw = String(keys[0]).trim();
 
-          if (raw.startsWith('{')) {
-            try {
-              // Remove anything accidentally added before/after the JSON.
-              const start = raw.indexOf('{');
-              const end = raw.lastIndexOf('}');
+          // Remove accidental quotes around the JSON string.
+          raw = raw.replace(/^['"]+|['"]+$/g, '').trim();
 
-              if (start !== -1 && end > start) {
-                body = JSON.parse(raw.slice(start, end + 1));
-              }
-            } catch (e) {
-              console.error(
-                'WayForPay callback JSON parse error:',
-                e,
-                'RAW:',
-                raw
-              );
-            }
+          const start = raw.indexOf('{');
+          const end = raw.lastIndexOf('}');
+
+          if (start !== -1 && end > start) {
+            const jsonText = raw.slice(start, end + 1);
+            body = JSON.parse(jsonText);
           }
         }
       }
+    } catch (e) {
+      console.error('WayForPay callback JSON parse error:', e);
     }
 
     console.log('WAYFORPAY PARSED BODY:', body);
@@ -791,6 +781,7 @@ app.listen(PORT, "0.0.0.0", () => console.log(`Lamba Remote Image Editor listeni
 
   
   
+
 
 
 
