@@ -265,6 +265,37 @@ app.post(['/api/payment/create', '/api/create-checkout-session'], async (req, re
       createdAt: Date.now()
     });
 
+// Save payment order in Supabase
+const savePaymentResponse = await fetch(
+  `${SUPABASE_URL}/rest/v1/payment_orders`,
+  {
+    method: 'POST',
+    headers: {
+      apikey: SUPABASE_SERVICE_ROLE_KEY,
+      Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+      'Content-Type': 'application/json',
+      Prefer: 'return=representation'
+    },
+    body: JSON.stringify({
+      order_reference: orderReference,
+      user_id: user.id,
+      amount: PAYMENT_AMOUNT_USD,
+      currency: 'USD',
+      credits: PAYMENT_CREDITS,
+      status: 'Pending',
+      credited: false
+    })
+  }
+);
+
+if (!savePaymentResponse.ok) {
+  const details = await savePaymentResponse.text();
+  throw new Error(
+    `Supabase save payment failed: HTTP ${savePaymentResponse.status} ${details}`
+  );
+}
+
+console.log('Payment order saved in Supabase:', orderReference);   
     res.json({
   ok: true,
   orderReference,
