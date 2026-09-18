@@ -618,41 +618,197 @@ app.get('/api/payment/status/:orderReference', (req, res) => {
 
 app.post('/api/generate', upload.single('image'), async (req, res) => {
   let tmp = null;
-  try {
-    if (!TOKEN) return res.status(500).json({ error: 'REPLICATE_API_TOKEN не настроен на Render.' });
-    if (!req.file) return res.status(400).json({ error: 'Фото не загружено.' });
-    const prompt = String(req.body?.prompt || '').trim();
-    if (!prompt) return res.status(400).json({ error: 'Напиши, что изменить на фото.' });
 
-    const ext = path.extname(req.file.originalname || '').toLowerCase() || '.jpg';
-    tmp = path.join(os.tmpdir(), `lamba-${Date.now()}${ext}`);
+  try {
+    // Проверяем Replicate
+    if (!TOKEN) {
+      return res.status(500).json({
+        error: 'REPLICATE_API_TOKEN не настроен на Render.'
+      });
+    }
+
+    // Проверяем авторизацию пользователя
+    const user = await getAuthenticatedSupabaseUser(req);
+
+    if (!user?.id) {
+      return res.status(401).json({
+        error: 'Сначала войдите в аккаунт Lamba Image Studio.'
+      });
+    }
+
+    // Проверяем фото
+    if (!req.file) {
+      return res.status(400).json({
+        error: 'Фото не загружено.'
+      });
+    }
+
+    const prompt = String(req.body?.prompt || '').trim();
+
+    if (!prompt) {
+      return res.status(400).json({
+        error: 'Напиши, что изменить на фото.'
+      });
+    }
+
+    // Проверяем баланс кредитов
+    if (!supabaseReady()) {
+      return res.status(500).json({
+        error: 'Supabase server credentials не настроены.'
+      });
+    }
+
+    const headers = {
+      apikey: SUPABASE_SERVICE_ROLE_KEY,
+      Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+      'Content-Type': 'application/json'
+    };
+
+    const creditsResponse = await fetch(
+      `${SUPABASE_URL}/rest/v1/user_credits?user_id=eq.${encodeURIComponent(user.id)}&select=user_id,credits`,
+      { headers }
+    );
+
+    if (!creditsResponse.ok) {
+      const details = await creditsResponse.text();
+
+      throw new Error(
+        `Supabase read credits failed: HTTP ${creditsResponse.status} ${details}`
+      );
+    }
+
+    const creditRows = await creditsResponse.json();
+
+    if (!Array.isArray(creditRows) || !creditRows.length) {
+      return res.status(403).json({
+        error: 'Для пользователя не создан баланс кредитов.'
+      });
+    }
+
+    const currentCredits = Number(creditRows[0].credits) || 0;
+
+    if (currentCredits < 1) {
+      return res.status(402).json({
+        error: 'У вас закончились генерации. Купите пакет из 10 генераций.'
+      });
+    }
+
+    // Временный файл
+    const ext =
+      path.extname(req.file.originalname || '').toLowerCase() || '.jpg';
+
+    tmp = path.join(
+      os.tmpdir(),
+      `lamba-${Date.now()}${ext}`
+    );
+
     await fs.writeFile(tmp, req.file.buffer);
 
-    const output = await replicate.run('black-forest-labs/flux-kontext-pro', {
-      input: {
-        prompt,
-        input_image: req.file.buffer,
-        aspect_ratio: 'match_input_image',
-        output_format: 'jpg',
-        safety_tolerance: 2,
-        prompt_upsampling: false
+    // Генерация изображения
+    const output = await replicate.run(
+      'black-forest-labs/flux-kontext-pro',
+      {
+        input: {
+          prompt,
+          input_image: req.file.buffer,
+          aspect_ratio: 'match_input_image',
+          output_format: 'jpg',
+          safety_tolerance: 2,
+          prompt_upsampling: false
+        }
       }
-    });
+    );
 
-    if (!output) throw new Error('Модель не вернула изображение.');
-    const data = Buffer.from(await output.blob().then(b => b.arrayBuffer()));
+    if (!output) {
+      throw new Error('Модель не вернула изображение.');
+    }
 
-                            
+    const data = Buffer.from(
+      await output.blob().then(b => b.arrayBuffer())
+    );
+
+    // Списываем 1 кредит только после успешной генерации
+    const newCredits = currentCredits - 1;
+
+    const updateCreditsResponse = await fetch(
+      `${SUPABASE_URL}/rest/v1/user_credits?user_id=eq.${encodeURIComponent(user.id)}`,
+      {
+        method: 'PATCH',
+        headers: {
+          ...headers,
+          Prefer: 'return=representation'
+        },
+        body: JSON.stringify({
+          credits: newCredits,
+          updated_at: new Date().toISOString()
+        })
+      }
+    );
+
+    if (!updateCreditsResponse.ok) {
+      const details = await updateCreditsResponse.text();
+
+      throw new Error(
+        `Supabase update credits failed: HTTP ${updateCreditsResponse.status} ${details}`
+      );
+    }
+
+    console.log(
+      `Lamba generation: user=${user.id}, credits ${currentCredits} -> ${newCredits}`
+    );
+
     res.set('Content-Type', 'image/jpeg');
     res.set('Cache-Control', 'no-store');
+    res.set('X-Credits-Remaining', String(newCredits));
     res.send(data);
+
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: err?.message || 'Ошибка генерации.' });
+    console.error('Lamba generation error:', err);
+
+    res.status(500).json({
+      error: err?.message || 'Ошибка генерации.'
+    });
+
   } finally {
-    if (tmp) await fs.unlink(tmp).catch(() => {});
+    if (tmp) {
+      await fs.unlink(tmp).catch(() => {});
+    }
   }
 });
+  
+  
+    
+    
+    
+    
+
+    
+  
+    
+
+    
+      
+        
+        
+        
+        
+       
+      
+    
+
+    
+    
+
+                            
+    
+    
+    
+  
+    
+    
+  
+  
+
 
 
 
