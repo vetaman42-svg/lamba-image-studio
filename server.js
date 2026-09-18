@@ -496,17 +496,17 @@ app.post('/api/payment/wayforpay-callback', async (req, res) => {
       
     
 
-    res.json({
-      orderReference: body.orderReference,
-      status,
-      time,
-      signature
-    });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Ошибка обработки уведомления WayForPay.' });
-  }
-});
+    
+      
+      
+      
+    
+    
+  
+  
+    
+  
+
 
 // Frontend can check the result of a payment by orderReference.
 app.get('/api/payment/status/:orderReference', (req, res) => {
