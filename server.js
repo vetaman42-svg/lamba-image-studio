@@ -269,13 +269,15 @@ console.log('Payment order saved in Supabase:', orderReference);
   }
 });
 
-// WayForPay sends payment status here.
+// WayForPay payment callback
 app.post('/api/payment/wayforpay-callback', async (req, res) => {
-  console.log('WAYFORPAY HEADERS:', req.headers['content-type']);
-  console.log('WAYFORPAY CALLBACK BODY:', req.body);
+  console.log('=== WAYFORPAY CALLBACK START ===');
+  console.log('Content-Type:', req.headers['content-type']);
+  console.log('Raw callback body:', req.body);
 
   try {
     if (!W4P_SECRET) {
+      console.error('WAYFORPAY_SECRET_KEY is missing');
       return res.status(500).json({
         error: 'WAYFORPAY_SECRET_KEY не настроен.'
       });
@@ -283,45 +285,37 @@ app.post('/api/payment/wayforpay-callback', async (req, res) => {
 
     let body = req.body || {};
 
-    try {
-      // WayForPay normally sends JSON.
-      if (typeof body === 'string') {
-        body = JSON.parse(body.trim());
-      }
+    // Parse JSON sent as a form field
+    if (!body.orderReference && typeof body === 'object') {
+      const keys = Object.keys(body);
 
-      // Sometimes application/x-www-form-urlencoded puts the
-      // whole JSON object into the field name.
-      if (!body.orderReference && body && typeof body === 'object') {
-        const keys = Object.keys(body);
+      if (keys.length === 1) {
+        let raw = String(keys[0]).trim();
+        raw = raw.replace(/^['"]+|['"]+$/g, '').trim();
 
-        if (keys.length === 1) {
-          let raw = String(keys[0]).trim();
+        const start = raw.indexOf('{');
+        const end = raw.lastIndexOf('}');
 
-          // Remove accidental quotes around the JSON string.
-          raw = raw.replace(/^['"]+|['"]+$/g, '').trim();
-
-          const start = raw.indexOf('{');
-          const end = raw.lastIndexOf('}');
-
-          if (start !== -1 && end > start) {
-            const jsonText = raw.slice(start, end + 1);
-            body = JSON.parse(jsonText);
-          }
+        if (start !== -1 && end > start) {
+          body = JSON.parse(raw.slice(start, end + 1));
         }
       }
-    } catch (e) {
-      console.error('WayForPay callback JSON parse error:', e);
     }
 
-    console.log('WAYFORPAY PARSED BODY:', body);
+    console.log('Parsed orderReference:', body.orderReference);
+    console.log('Parsed transactionStatus:', body.transactionStatus);
+    console.log('Parsed amount:', body.amount);
+    console.log('Parsed currency:', body.currency);
 
     if (!body.orderReference) {
+      console.error('No orderReference in callback');
       return res.status(400).json({
         error: 'WayForPay callback не содержит orderReference.'
       });
     }
 
-    const expected = wayForPaySignature([
+    // Verify WayForPay signature
+    const expectedSignature = wayForPaySignature([
       body.merchantAccount || '',
       body.orderReference || '',
       body.amount || '',
@@ -332,146 +326,216 @@ app.post('/api/payment/wayforpay-callback', async (req, res) => {
       body.reasonCode || ''
     ]);
 
+    console.log('Signature received:', body.merchantSignature);
+    console.log('Signature expected:', expectedSignature);
+
     if (
       !body.merchantSignature ||
-      body.merchantSignature !== expected
+      body.merchantSignature !== expectedSignature
     ) {
-      console.error('WayForPay signature mismatch:', {
-        orderReference: body.orderReference,
-        transactionStatus: body.transactionStatus
-      });
+      console.error('WAYFORPAY SIGNATURE MISMATCH');
 
       return res.status(400).json({
         error: 'Неверная подпись WayForPay.'
       });
     }
 
-    const paymentResponse = await fetch(
-  `${SUPABASE_URL}/rest/v1/payment_orders?order_reference=eq.${encodeURIComponent(body.orderReference)}&select=*`,
-  {
-    headers: {
-      apikey: SUPABASE_SERVICE_ROLE_KEY,
-      Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`
+    console.log('Signature OK');
+
+    if (!supabaseReady()) {
+      console.error('Supabase is not configured');
+      return res.status(500).json({
+        error: 'Supabase server credentials не настроены.'
+      });
     }
-  }
-);
 
-if (!paymentResponse.ok) {
-  const details = await paymentResponse.text();
-  throw new Error(
-    `Supabase payment lookup failed: HTTP ${paymentResponse.status} ${details}`
-  );
-}
+    // Find payment order
+    console.log('Looking for payment in Supabase:', body.orderReference);
 
-const paymentRows = await paymentResponse.json();
-const payment = paymentRows?.[0];
-
-if (!payment) {
-  console.error(
-    'WayForPay payment not found in Supabase:',
-    body.orderReference
-  );
-} else {
-  console.log('WayForPay payment found in Supabase:', body.orderReference);
-
-  if (body.transactionStatus === 'Approved') {
-    const creditResponse = await fetch(
-      `${SUPABASE_URL}/rest/v1/rpc/credit_payment`,
+    const paymentResponse = await fetch(
+      `${SUPABASE_URL}/rest/v1/payment_orders?order_reference=eq.${encodeURIComponent(body.orderReference)}&select=*`,
       {
-        method: 'POST',
         headers: {
           apikey: SUPABASE_SERVICE_ROLE_KEY,
-          Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
-          'Content-Type': 'application/json'
+          Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`
         },
-        body: JSON.stringify({
-          p_order_reference: body.orderReference,
-          p_credits: PAYMENT_CREDITS
-        })
+        signal: AbortSignal.timeout(10000)
       }
     );
 
-    if (!creditResponse.ok) {
-      const details = await creditResponse.text();
+    if (!paymentResponse.ok) {
+      const details = await paymentResponse.text();
+
+      console.error(
+        'Supabase payment lookup failed:',
+        paymentResponse.status,
+        details
+      );
+
       throw new Error(
-        `Supabase credit payment failed: HTTP ${creditResponse.status} ${details}`
+        `Supabase payment lookup failed: HTTP ${paymentResponse.status} ${details}`
       );
     }
 
-    const creditResult = await creditResponse.json();
+    const paymentRows = await paymentResponse.json();
+    const payment = paymentRows?.[0];
 
-    const credited = !!creditResult?.[0]?.credited;
-    const newBalance = creditResult?.[0]?.new_balance ?? null;
+    console.log('Payment found:', !!payment);
 
-    // Keep the in-memory status in sync for the frontend polling endpoint.
-    const localPayment = payments.get(body.orderReference);
-    if (localPayment) {
-      localPayment.status = 'Approved';
-      localPayment.paid = true;
-      localPayment.credited = credited;
-      localPayment.newBalance = newBalance;
-      localPayment.creditsToAdd = PAYMENT_CREDITS;
+    if (!payment) {
+      console.error(
+        'PAYMENT NOT FOUND:',
+        body.orderReference
+      );
+
+      return res.status(404).json({
+        error: 'Платёж не найден в payment_orders.'
+      });
     }
 
-    // Persist the final payment status in Supabase.
-    const updatePaymentResponse = await fetch(
-      `${SUPABASE_URL}/rest/v1/payment_orders?order_reference=eq.${encodeURIComponent(body.orderReference)}`,
-      {
-        method: 'PATCH',
-        headers: {
-          apikey: SUPABASE_SERVICE_ROLE_KEY,
-          Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
-          'Content-Type': 'application/json',
-          Prefer: 'return=minimal'
-        },
-        body: JSON.stringify({
-          status: 'Approved',
+    console.log('Payment status before:', payment.status);
+    console.log('Payment credited before:', payment.credited);
+
+    // Only successful payments receive credits
+    if (body.transactionStatus === 'Approved') {
+
+      // If already credited, do not add credits again
+      if (payment.credited === true) {
+        console.log('Payment already credited. No duplicate credit.');
+
+      } else {
+
+        console.log(
+          'APPROVED PAYMENT. Adding',
+          PAYMENT_CREDITS,
+          'credits to user:',
+          payment.user_id
+        );
+
+        const creditResponse = await fetch(
+          `${SUPABASE_URL}/rest/v1/rpc/credit_payment`,
+          {
+            method: 'POST',
+            headers: {
+              apikey: SUPABASE_SERVICE_ROLE_KEY,
+              Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              p_order_reference: body.orderReference,
+              p_credits: PAYMENT_CREDITS
+            }),
+            signal: AbortSignal.timeout(10000)
+          }
+        );
+
+        const creditText = await creditResponse.text();
+
+        console.log(
+          'credit_payment response:',
+          creditResponse.status,
+          creditText
+        );
+
+        if (!creditResponse.ok) {
+          throw new Error(
+            `credit_payment failed: HTTP ${creditResponse.status} ${creditText}`
+          );
+        }
+
+        let creditResult = null;
+
+        try {
+          creditResult = creditText
+            ? JSON.parse(creditText)
+            : null;
+        } catch {
+          creditResult = null;
+        }
+
+        const credited = !!creditResult?.[0]?.credited;
+        const newBalance =
+          creditResult?.[0]?.new_balance ?? null;
+
+        console.log(
+          'CREDIT RESULT:',
+          'credited =',
           credited,
-          updated_at: new Date().toISOString()
-        })
+          'newBalance =',
+          newBalance
+        );
+
+        // Save final payment status
+        const updatePaymentResponse = await fetch(
+          `${SUPABASE_URL}/rest/v1/payment_orders?order_reference=eq.${encodeURIComponent(body.orderReference)}`,
+          {
+            method: 'PATCH',
+            headers: {
+              apikey: SUPABASE_SERVICE_ROLE_KEY,
+              Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+              'Content-Type': 'application/json',
+              Prefer: 'return=minimal'
+            },
+            body: JSON.stringify({
+              status: 'Approved',
+              credited: credited,
+              updated_at: new Date().toISOString()
+            }),
+            signal: AbortSignal.timeout(10000)
+          }
+        );
+
+        if (!updatePaymentResponse.ok) {
+          const details = await updatePaymentResponse.text();
+
+          throw new Error(
+            `Supabase payment update failed: HTTP ${updatePaymentResponse.status} ${details}`
+          );
+        }
+
+        console.log(
+          'PAYMENT UPDATED: Approved / credited =',
+          credited
+        );
       }
-    );
 
-    if (!updatePaymentResponse.ok) {
-      const details = await updatePaymentResponse.text();
-      throw new Error(`Supabase update payment failed: HTTP ${updatePaymentResponse.status} ${details}`);
-    }
+    } else {
 
-    console.log(
-      `WayForPay Approved: credited=${credited}; balance=${newBalance}`
-    );
-  } else {
-    const localPayment = payments.get(body.orderReference);
-    if (localPayment) {
-      localPayment.status = String(body.transactionStatus || 'Declined');
-      localPayment.paid = false;
-      localPayment.credited = false;
-    }
+      console.log(
+        'Payment is not Approved:',
+        body.transactionStatus
+      );
 
-    const updatePaymentResponse = await fetch(
-      `${SUPABASE_URL}/rest/v1/payment_orders?order_reference=eq.${encodeURIComponent(body.orderReference)}`,
-      {
-        method: 'PATCH',
-        headers: {
-          apikey: SUPABASE_SERVICE_ROLE_KEY,
-          Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
-          'Content-Type': 'application/json',
-          Prefer: 'return=minimal'
-        },
-        body: JSON.stringify({
-          status: String(body.transactionStatus || 'Declined'),
-          updated_at: new Date().toISOString()
-        })
+      const updatePaymentResponse = await fetch(
+        `${SUPABASE_URL}/rest/v1/payment_orders?order_reference=eq.${encodeURIComponent(body.orderReference)}`,
+        {
+          method: 'PATCH',
+          headers: {
+            apikey: SUPABASE_SERVICE_ROLE_KEY,
+            Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+            'Content-Type': 'application/json',
+            Prefer: 'return=minimal'
+          },
+          body: JSON.stringify({
+            status: String(
+              body.transactionStatus || 'Declined'
+            ),
+            updated_at: new Date().toISOString()
+          }),
+          signal: AbortSignal.timeout(10000)
+        }
+      );
+
+      if (!updatePaymentResponse.ok) {
+        const details = await updatePaymentResponse.text();
+
+        throw new Error(
+          `Supabase declined payment update failed: HTTP ${updatePaymentResponse.status} ${details}`
+        );
       }
-    );
-
-    if (!updatePaymentResponse.ok) {
-      const details = await updatePaymentResponse.text();
-      throw new Error(`Supabase update payment failed: HTTP ${updatePaymentResponse.status} ${details}`);
     }
-  }
-}
 
+    // WayForPay acknowledgement
     const time = Math.floor(Date.now() / 1000);
     const status = 'accept';
 
@@ -481,6 +545,11 @@ if (!payment) {
       time
     ]);
 
+    console.log(
+      '=== WAYFORPAY CALLBACK SUCCESS ===',
+      body.orderReference
+    );
+
     return res.json({
       orderReference: body.orderReference,
       status,
@@ -489,10 +558,16 @@ if (!payment) {
     });
 
   } catch (err) {
-    console.error('WayForPay callback error:', err);
+
+    console.error(
+      '=== WAYFORPAY CALLBACK ERROR ===',
+      err
+    );
 
     return res.status(500).json({
-      error: 'Ошибка обработки уведомления WayForPay.'
+      error:
+        err?.message ||
+        'Ошибка обработки уведомления WayForPay.'
     });
   }
 });
@@ -785,3 +860,5 @@ app.listen(PORT, "0.0.0.0", () => console.log(`Lamba Remote Image Editor listeni
 
 
 
+
+    
