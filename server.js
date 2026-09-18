@@ -129,55 +129,6 @@ async function addCreditsToUser(userId, amount) {
 
   return Number(updatedRows?.[0]?.credits ?? newCredits);
 }
-  
-    
-  
-
-  
-    
-  
-    
-  
-
-  
-    
-    
-  
-
-  
-    
-  
-
-
-  
-    
-  
-
-  
-  
-
-  
-    
-    
-      
-      
-      
-    
-
-
-  
-    
-    
-      
-
-
-      
-
-  
-
-  
-  
-
 
 // Create a WayForPay invoice for 10 image generations for $2.99.
 app.post(['/api/payment/create', '/api/create-checkout-session'], async (req, res) => {
@@ -295,7 +246,7 @@ if (!savePaymentResponse.ok) {
   );
 }
 
-console.log('Payment order saved in Supabase:', orderReference);   
+console.log('Payment order saved in Supabase:', orderReference);
     res.json({
   ok: true,
   orderReference,
@@ -305,13 +256,7 @@ console.log('Payment order saved in Supabase:', orderReference);
   currency: 'USD',
   credits: PAYMENT_CREDITS
 });
-      
-      
-      
-      
-    
-      
-  
+
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err?.message || 'Ошибка создания платежа.' });
@@ -466,37 +411,6 @@ if (!payment) {
   }
 }
 
-    
-      
-      
-      
-
-      
-      
-
-      
-        
-          
-          
-        
-
-        
-       
-        
-
-        
-          
-        
-      
-        
-      
-    
-      
-        
-        
-      
-  
-
     const time = Math.floor(Date.now() / 1000);
     const status = 'accept';
 
@@ -521,81 +435,6 @@ if (!payment) {
     });
   }
 });
-
-
-                                                                 
-    
-      
-    
-
-    
-
-  
-
-  
-    
-      
-    
-      
-      
-    
-  
-
-    
-      
-      
-    
-      
-      
-    
-      
-      
-    
-
-    
-      
-    
-
-    
-    
-      
-      
-      
-
-      
-      
-      
-
-      
-        
-       
-        
-        
-        
-      
-        
-      
-    
-
-    
-    
-    
-      
-      
-      
-    
-
-    
-      
-      
-      
-    
-    
-  
-  
-    
-  
-
 
 // Frontend can check the result of a payment by orderReference.
 app.get('/api/payment/status/:orderReference', (req, res) => {
@@ -775,45 +614,7 @@ app.post('/api/generate', upload.single('image'), async (req, res) => {
     }
   }
 });
-  
-  
-    
-    
-    
-    
 
-    
-  
-    
-
-    
-      
-        
-        
-        
-        
-       
-      
-    
-
-    
-    
-
-                            
-    
-    
-    
-  
-    
-    
-  
-  
-
-
-
-
-
-                                                                                  
 app.post('/api/video', upload.single('image'), async (req, res) => {
   try {
     if (!TOKEN) {
@@ -857,6 +658,33 @@ app.post('/api/video', upload.single('image'), async (req, res) => {
   }
 });
 app.listen(PORT, "0.0.0.0", () => console.log(`Lamba Remote Image Editor listening on 0.0.0.0:${PORT}`));
+
+
+
+  
+  
+
+  
+    
+    
+      
+      
+      
+    
+
+
+  
+    
+    
+      
+
+
+      
+
+  
+
+  
+  
 
 
 
