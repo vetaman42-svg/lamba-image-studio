@@ -490,12 +490,12 @@ if (!payment) {
       
         
       
-    } else {
-      console.error(
-        'WayForPay payment not found:',
-        body.orderReference
-      );
-    }
+    
+      
+        
+        
+      
+  
 
     const time = Math.floor(Date.now() / 1000);
     const status = 'accept';
