@@ -296,7 +296,20 @@ console.log('WAYFORPAY CALLBACK BODY:', req.body);
       return res.status(500).json({ error: 'WAYFORPAY_SECRET_KEY не настроен.' });
     }
 
-    const body = req.body || {};
+    let body = req.body || {};
+
+if (!body.orderReference) {
+  const keys = Object.keys(body);
+
+  if (keys.length === 1 && keys[0].trim().startsWith('{')) {
+    try {
+      body = JSON.parse(keys[0]);
+    } catch (e) {
+      console.error('WayForPay callback JSON parse error:', e);
+      return res.status(400).json({ error: 'Неверный формат callback WayForPay.' });
+    }
+  }
+}
     const expected = wayForPaySignature([
       body.merchantAccount || '',
       body.orderReference || '',
