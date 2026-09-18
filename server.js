@@ -88,9 +88,8 @@ async function addCreditsToUser(userId, amount) {
     'Content-Type': 'application/json'
   };
 
-  // Read the current balance from the existing public.profiles table.
   const readResponse = await fetch(
-    `${SUPABASE_URL}/rest/v1/profiles?id=eq.${encodeURIComponent(userId)}&select=id,credits`,
+    `${SUPABASE_URL}/rest/v1/user_credits?user_id=eq.${encodeURIComponent(userId)}&select=user_id,credits`,
     { headers }
   );
 
@@ -99,30 +98,86 @@ async function addCreditsToUser(userId, amount) {
   }
 
   const rows = await readResponse.json();
+
   if (!Array.isArray(rows) || !rows.length) {
-    throw new Error('Профиль пользователя не найден в Supabase.');
+    throw new Error('Пользователь не найден в user_credits.');
   }
 
   const currentCredits = Number(rows[0].credits) || 0;
   const newCredits = currentCredits + Number(amount);
 
   const updateResponse = await fetch(
-    `${SUPABASE_URL}/rest/v1/profiles?id=eq.${encodeURIComponent(userId)}`,
+    `${SUPABASE_URL}/rest/v1/user_credits?user_id=eq.${encodeURIComponent(userId)}`,
     {
       method: 'PATCH',
       headers: { ...headers, Prefer: 'return=representation' },
-      body: JSON.stringify({ credits: newCredits })
+      body: JSON.stringify({
+        credits: newCredits,
+        updated_at: new Date().toISOString()
+      })
     }
   );
 
   if (!updateResponse.ok) {
     const details = await updateResponse.text();
-    throw new Error(`Supabase update credits failed: HTTP ${updateResponse.status} ${details}`);
+    throw new Error(
+      `Supabase update credits failed: HTTP ${updateResponse.status} ${details}`
+    );
   }
 
   const updatedRows = await updateResponse.json();
+
   return Number(updatedRows?.[0]?.credits ?? newCredits);
 }
+  
+    
+  
+
+  
+    
+  
+    
+  
+
+  
+    
+    
+  
+
+  
+    
+  
+
+
+  
+    
+  
+
+  
+  
+
+  
+    
+    
+      
+      
+      
+    
+
+
+  
+    
+    
+      
+
+
+      
+
+  
+
+  
+  
+
 
 // Create a WayForPay invoice for 10 image generations for $2.99.
 app.post(['/api/payment/create', '/api/create-checkout-session'], async (req, res) => {
