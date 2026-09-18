@@ -285,19 +285,59 @@ app.post('/api/payment/wayforpay-callback', async (req, res) => {
 
     let body = req.body || {};
 
-    // Parse JSON sent as a form field
-    if (!body.orderReference && typeof body === 'object') {
-      const keys = Object.keys(body);
+    // WayForPay may send the whole JSON object as the field name
+    // of an application/x-www-form-urlencoded request.
+    // Express can expose that request as an object with one or more keys,
+    // so inspect BOTH keys and values and try to recover the JSON payload.
+    if (!body.orderReference && body && typeof body === 'object') {
+      const candidates = [];
 
-      if (keys.length === 1) {
-        let raw = String(keys[0]).trim();
+      for (const [key, value] of Object.entries(body)) {
+        candidates.push(String(key ?? ''));
+        if (value !== undefined && value !== null) {
+          candidates.push(String(value));
+        }
+      }
+
+      for (const candidate of candidates) {
+        let raw = candidate.trim();
+
+        if (!raw) continue;
+
+        // Remove URL encoding if WayForPay/form parsing left it encoded.
+        try {
+          raw = decodeURIComponent(raw);
+        } catch {
+          // Keep the original string when it is not valid URI encoding.
+        }
+
+        raw = raw.trim();
+
+        // Remove accidental wrapping quotes.
         raw = raw.replace(/^['"]+|['"]+$/g, '').trim();
 
         const start = raw.indexOf('{');
         const end = raw.lastIndexOf('}');
 
-        if (start !== -1 && end > start) {
-          body = JSON.parse(raw.slice(start, end + 1));
+        if (start === -1 || end <= start) continue;
+
+        const jsonText = raw.slice(start, end + 1);
+
+        try {
+          const parsed = JSON.parse(jsonText);
+
+          if (parsed && typeof parsed === 'object') {
+            body = parsed;
+            console.log(
+              'WayForPay form payload successfully parsed from form field.'
+            );
+            break;
+          }
+        } catch (parseError) {
+          console.error(
+            'WayForPay form JSON candidate parse failed:',
+            parseError?.message || parseError
+          );
         }
       }
     }
@@ -308,6 +348,10 @@ app.post('/api/payment/wayforpay-callback', async (req, res) => {
     console.log('Parsed currency:', body.currency);
 
     if (!body.orderReference) {
+      console.error(
+        'WayForPay callback parsing failed. Body keys:',
+        Object.keys(body || {})
+      );
       console.error('No orderReference in callback');
       return res.status(400).json({
         error: 'WayForPay callback не содержит orderReference.'
@@ -860,5 +904,3 @@ app.listen(PORT, "0.0.0.0", () => console.log(`Lamba Remote Image Editor listeni
 
 
 
-
-    
