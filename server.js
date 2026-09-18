@@ -406,32 +406,90 @@ app.post('/api/payment/wayforpay-callback', async (req, res) => {
       });
     }
 
-    const payment = payments.get(body.orderReference);
+    const paymentResponse = await fetch(
+  `${SUPABASE_URL}/rest/v1/payment_orders?order_reference=eq.${encodeURIComponent(body.orderReference)}&select=*`,
+  {
+    headers: {
+      apikey: SUPABASE_SERVICE_ROLE_KEY,
+      Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`
+    }
+  }
+);
 
-    if (payment) {
-      payment.status = body.transactionStatus || 'Unknown';
-      payment.reasonCode = body.reasonCode || '';
-      payment.updatedAt = Date.now();
+if (!paymentResponse.ok) {
+  const details = await paymentResponse.text();
+  throw new Error(
+    `Supabase payment lookup failed: HTTP ${paymentResponse.status} ${details}`
+  );
+}
 
-      // Successful WayForPay payment gets the 10-generation package.
-      payment.paid = body.transactionStatus === 'Approved';
+const paymentRows = await paymentResponse.json();
+const payment = paymentRows?.[0];
 
-      if (payment.paid && !payment.credited) {
-        const newBalance = await addCreditsToUser(
-          payment.userId,
-          PAYMENT_CREDITS
-        );
+if (!payment) {
+  console.error(
+    'WayForPay payment not found in Supabase:',
+    body.orderReference
+  );
+} else {
+  console.log('WayForPay payment found in Supabase:', body.orderReference);
 
-        payment.credited = true;
-        payment.creditsToAdd = PAYMENT_CREDITS;
-        payment.newBalance = newBalance;
-
-        console.log(
-          `WayForPay: +${PAYMENT_CREDITS} credits for ${payment.userId}; balance=${newBalance}`
-        );
-      } else if (!payment.paid) {
-        payment.creditsToAdd = 0;
+  if (body.transactionStatus === 'Approved') {
+    const creditResponse = await fetch(
+      `${SUPABASE_URL}/rest/v1/rpc/credit_payment`,
+      {
+        method: 'POST',
+        headers: {
+          apikey: SUPABASE_SERVICE_ROLE_KEY,
+          Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          p_order_reference: body.orderReference,
+          p_credits: PAYMENT_CREDITS
+        })
       }
+    );
+
+    if (!creditResponse.ok) {
+      const details = await creditResponse.text();
+      throw new Error(
+        `Supabase credit payment failed: HTTP ${creditResponse.status} ${details}`
+      );
+    }
+
+    const creditResult = await creditResponse.json();
+
+    console.log(
+      `WayForPay Approved: credited=${creditResult?.[0]?.credited}; balance=${creditResult?.[0]?.new_balance}`
+    );
+  }
+}
+
+    
+      
+      
+      
+
+      
+      
+
+      
+        
+          
+          
+        
+
+        
+       
+        
+
+        
+          
+        
+      
+        
+      
     } else {
       console.error(
         'WayForPay payment not found:',
