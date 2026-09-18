@@ -34,6 +34,12 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static('.'));
 
+// WayForPay returns the customer to this URL with POST data.
+// Redirect POST / to GET / so the Lamba page opens instead of showing "Cannot POST /".
+app.post('/', (_req, res) => {
+  res.redirect(303, '/');
+});
+
 app.get('/api/health', (_req, res) => {
   res.json({ ok: true, provider: 'replicate', model: 'black-forest-labs/flux-kontext-pro', tokenConfigured: !!TOKEN });
 });
@@ -788,6 +794,3 @@ app.listen(PORT, "0.0.0.0", () => console.log(`Lamba Remote Image Editor listeni
 
 
 
-
-      
- 
