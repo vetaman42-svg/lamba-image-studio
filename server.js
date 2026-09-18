@@ -264,7 +264,6 @@ console.log('Payment order saved in Supabase:', orderReference);
 });
 
 // WayForPay sends payment status here.
-// WayForPay sends payment status here.
 app.post('/api/payment/wayforpay-callback', async (req, res) => {
   console.log('WAYFORPAY HEADERS:', req.headers['content-type']);
   console.log('WAYFORPAY CALLBACK BODY:', req.body);
@@ -405,9 +404,75 @@ if (!payment) {
 
     const creditResult = await creditResponse.json();
 
-    console.log(
-      `WayForPay Approved: credited=${creditResult?.[0]?.credited}; balance=${creditResult?.[0]?.new_balance}`
+    const credited = !!creditResult?.[0]?.credited;
+    const newBalance = creditResult?.[0]?.new_balance ?? null;
+
+    // Keep the in-memory status in sync for the frontend polling endpoint.
+    const localPayment = payments.get(body.orderReference);
+    if (localPayment) {
+      localPayment.status = 'Approved';
+      localPayment.paid = true;
+      localPayment.credited = credited;
+      localPayment.newBalance = newBalance;
+      localPayment.creditsToAdd = PAYMENT_CREDITS;
+    }
+
+    // Persist the final payment status in Supabase.
+    const updatePaymentResponse = await fetch(
+      `${SUPABASE_URL}/rest/v1/payment_orders?order_reference=eq.${encodeURIComponent(body.orderReference)}`,
+      {
+        method: 'PATCH',
+        headers: {
+          apikey: SUPABASE_SERVICE_ROLE_KEY,
+          Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+          'Content-Type': 'application/json',
+          Prefer: 'return=minimal'
+        },
+        body: JSON.stringify({
+          status: 'Approved',
+          credited,
+          updated_at: new Date().toISOString()
+        })
+      }
     );
+
+    if (!updatePaymentResponse.ok) {
+      const details = await updatePaymentResponse.text();
+      throw new Error(`Supabase update payment failed: HTTP ${updatePaymentResponse.status} ${details}`);
+    }
+
+    console.log(
+      `WayForPay Approved: credited=${credited}; balance=${newBalance}`
+    );
+  } else {
+    const localPayment = payments.get(body.orderReference);
+    if (localPayment) {
+      localPayment.status = String(body.transactionStatus || 'Declined');
+      localPayment.paid = false;
+      localPayment.credited = false;
+    }
+
+    const updatePaymentResponse = await fetch(
+      `${SUPABASE_URL}/rest/v1/payment_orders?order_reference=eq.${encodeURIComponent(body.orderReference)}`,
+      {
+        method: 'PATCH',
+        headers: {
+          apikey: SUPABASE_SERVICE_ROLE_KEY,
+          Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+          'Content-Type': 'application/json',
+          Prefer: 'return=minimal'
+        },
+        body: JSON.stringify({
+          status: String(body.transactionStatus || 'Declined'),
+          updated_at: new Date().toISOString()
+        })
+      }
+    );
+
+    if (!updatePaymentResponse.ok) {
+      const details = await updatePaymentResponse.text();
+      throw new Error(`Supabase update payment failed: HTTP ${updatePaymentResponse.status} ${details}`);
+    }
   }
 }
 
@@ -437,22 +502,57 @@ if (!payment) {
 });
 
 // Frontend can check the result of a payment by orderReference.
-app.get('/api/payment/status/:orderReference', (req, res) => {
-  const payment = payments.get(req.params.orderReference);
-  if (!payment) {
-    return res.status(404).json({ error: 'Платёж не найден.' });
-  }
+// Read from Supabase so the result survives a Render restart.
+app.get('/api/payment/status/:orderReference', async (req, res) => {
+  try {
+    const orderReference = String(req.params.orderReference || '').trim();
 
-  res.json({
-    ok: true,
-    orderReference: payment.orderReference,
-    status: payment.status,
-    paid: !!payment.paid,
-    creditsToAdd: payment.creditsToAdd || 0,
-    newBalance: payment.newBalance ?? null,
-    amount: payment.amount,
-    currency: payment.currency
-  });
+    if (!orderReference) {
+      return res.status(400).json({ error: 'Не указан orderReference.' });
+    }
+
+    if (!supabaseReady()) {
+      return res.status(500).json({ error: 'Supabase server credentials не настроены.' });
+    }
+
+    const response = await fetch(
+      `${SUPABASE_URL}/rest/v1/payment_orders?order_reference=eq.${encodeURIComponent(orderReference)}&select=order_reference,status,credited,amount,currency,credits`,
+      {
+        headers: {
+          apikey: SUPABASE_SERVICE_ROLE_KEY,
+          Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`
+        }
+      }
+    );
+
+    if (!response.ok) {
+      const details = await response.text();
+      throw new Error(`Supabase payment status failed: HTTP ${response.status} ${details}`);
+    }
+
+    const rows = await response.json();
+    const payment = rows?.[0];
+
+    if (!payment) {
+      return res.status(404).json({ error: 'Платёж не найден.' });
+    }
+
+    res.json({
+      ok: true,
+      orderReference: payment.order_reference,
+      status: payment.status,
+      paid: payment.status === 'Approved',
+      credited: !!payment.credited,
+      creditsToAdd: payment.credits || 0,
+      amount: payment.amount,
+      currency: payment.currency
+    });
+  } catch (err) {
+    console.error('Payment status error:', err);
+    res.status(500).json({
+      error: err?.message || 'Ошибка проверки платежа.'
+    });
+  }
 });
 
 app.post('/api/generate', upload.single('image'), async (req, res) => {
@@ -688,3 +788,6 @@ app.listen(PORT, "0.0.0.0", () => console.log(`Lamba Remote Image Editor listeni
 
 
 
+
+      
+ 
