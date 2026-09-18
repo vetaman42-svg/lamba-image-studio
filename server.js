@@ -288,28 +288,68 @@ app.post(['/api/payment/create', '/api/create-checkout-session'], async (req, re
 });
 
 // WayForPay sends payment status here.
-app.post('/api/payment/wayforpay-callback', async (req, res) => {console.log('WAYFORPAY CALLBACK:', req.body);
-console.log('WAYFORPAY HEADERS:', req.headers['content-type']);
-console.log('WAYFORPAY CALLBACK BODY:', req.body);
-                                                                 try {
+// WayForPay sends payment status here.
+app.post('/api/payment/wayforpay-callback', async (req, res) => {
+  console.log('WAYFORPAY HEADERS:', req.headers['content-type']);
+  console.log('WAYFORPAY CALLBACK BODY:', req.body);
+
+  try {
     if (!W4P_SECRET) {
-      return res.status(500).json({ error: 'WAYFORPAY_SECRET_KEY не настроен.' });
+      return res.status(500).json({
+        error: 'WAYFORPAY_SECRET_KEY не настроен.'
+      });
     }
 
     let body = req.body || {};
 
-if (!body.orderReference) {
-  const keys = Object.keys(body);
+    // WayForPay should send JSON, but in our current setup
+    // the request arrives as application/x-www-form-urlencoded
+    // with the whole JSON object used as the field name.
+    if (!body.orderReference) {
+      if (typeof body === 'string') {
+        try {
+          body = JSON.parse(body);
+        } catch (e) {
+          console.error('WayForPay string JSON parse error:', e);
+        }
+      }
 
-  if (keys.length === 1 && keys[0].trim().startsWith('{')) {
-    try {
-      body = JSON.parse(keys[0]);
-    } catch (e) {
-      console.error('WayForPay callback JSON parse error:', e);
-      return res.status(400).json({ error: 'Неверный формат callback WayForPay.' });
+      if (!body.orderReference && body && typeof body === 'object') {
+        const keys = Object.keys(body);
+
+        if (keys.length === 1) {
+          const raw = String(keys[0]).trim();
+
+          if (raw.startsWith('{')) {
+            try {
+              // Remove anything accidentally added before/after the JSON.
+              const start = raw.indexOf('{');
+              const end = raw.lastIndexOf('}');
+
+              if (start !== -1 && end > start) {
+                body = JSON.parse(raw.slice(start, end + 1));
+              }
+            } catch (e) {
+              console.error(
+                'WayForPay callback JSON parse error:',
+                e,
+                'RAW:',
+                raw
+              );
+            }
+          }
+        }
+      }
     }
-  }
-}
+
+    console.log('WAYFORPAY PARSED BODY:', body);
+
+    if (!body.orderReference) {
+      return res.status(400).json({
+        error: 'WayForPay callback не содержит orderReference.'
+      });
+    }
+
     const expected = wayForPaySignature([
       body.merchantAccount || '',
       body.orderReference || '',
@@ -321,11 +361,22 @@ if (!body.orderReference) {
       body.reasonCode || ''
     ]);
 
-    if (!body.merchantSignature || body.merchantSignature !== expected) {
-      return res.status(400).json({ error: 'Неверная подпись WayForPay.' });
+    if (
+      !body.merchantSignature ||
+      body.merchantSignature !== expected
+    ) {
+      console.error('WayForPay signature mismatch:', {
+        orderReference: body.orderReference,
+        transactionStatus: body.transactionStatus
+      });
+
+      return res.status(400).json({
+        error: 'Неверная подпись WayForPay.'
+      });
     }
 
     const payment = payments.get(body.orderReference);
+
     if (payment) {
       payment.status = body.transactionStatus || 'Unknown';
       payment.reasonCode = body.reasonCode || '';
@@ -333,26 +384,117 @@ if (!body.orderReference) {
 
       // Successful WayForPay payment gets the 10-generation package.
       payment.paid = body.transactionStatus === 'Approved';
-      
 
       if (payment.paid && !payment.credited) {
-        const newBalance = await addCreditsToUser(payment.userId, PAYMENT_CREDITS);
+        const newBalance = await addCreditsToUser(
+          payment.userId,
+          PAYMENT_CREDITS
+        );
+
         payment.credited = true;
         payment.creditsToAdd = PAYMENT_CREDITS;
         payment.newBalance = newBalance;
-        console.log(`WayForPay: +${PAYMENT_CREDITS} credits for ${payment.userId}; balance=${newBalance}`);
+
+        console.log(
+          `WayForPay: +${PAYMENT_CREDITS} credits for ${payment.userId}; balance=${newBalance}`
+        );
       } else if (!payment.paid) {
         payment.creditsToAdd = 0;
       }
+    } else {
+      console.error(
+        'WayForPay payment not found:',
+        body.orderReference
+      );
     }
 
     const time = Math.floor(Date.now() / 1000);
     const status = 'accept';
+
     const signature = wayForPaySignature([
       body.orderReference || '',
       status,
       time
     ]);
+
+    return res.json({
+      orderReference: body.orderReference,
+      status,
+      time,
+      signature
+    });
+
+  } catch (err) {
+    console.error('WayForPay callback error:', err);
+
+    return res.status(500).json({
+      error: 'Ошибка обработки уведомления WayForPay.'
+    });
+  }
+});
+
+
+                                                                 
+    
+      
+    
+
+    
+
+  
+
+  
+    
+      
+    
+      
+      
+    
+  
+
+    
+      
+      
+    
+      
+      
+    
+      
+      
+    
+
+    
+      
+    
+
+    
+    
+      
+      
+      
+
+      
+      
+      
+
+      
+        
+       
+        
+        
+        
+      
+        
+      
+    
+
+    
+    
+    
+      
+      
+      
+    
 
     res.json({
       orderReference: body.orderReference,
