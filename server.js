@@ -320,7 +320,9 @@ app.post('/api/payment/wayforpay-callback', async (req, res) => {
             // Some gateways/wrappers can leave an additional layer of
             // backslash escaping around the JSON. Remove only the escaping
             // that prevents JSON.parse from seeing normal JSON quotes.
-            raw = raw.replace(/\\\"/g, '"');
+            // IMPORTANT: do not unescape quotes before JSON.parse().
+            // WayForPay can send escaped characters inside JSON values.
+            // Unescaping here can corrupt a valid callback payload.
             raw = raw.replace(/^['"]+|['"]+$/g, '').trim();
 
             const start = raw.indexOf('{');
@@ -382,7 +384,9 @@ app.post('/api/payment/wayforpay-callback', async (req, res) => {
         }
 
         raw = raw.trim();
-        raw = raw.replace(/\\\"/g, '"');
+        // IMPORTANT: do not unescape quotes before JSON.parse().
+        // WayForPay can send escaped characters inside JSON values.
+        // Unescaping here can corrupt a valid callback payload.
         raw = raw.replace(/^['"]+|['"]+$/g, '').trim();
 
         const start = raw.indexOf('{');
@@ -973,3 +977,4 @@ app.listen(PORT, "0.0.0.0", () => console.log(`Lamba Remote Image Editor listeni
 
     
   
+
