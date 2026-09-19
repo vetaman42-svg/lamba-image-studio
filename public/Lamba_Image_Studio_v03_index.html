@@ -335,8 +335,28 @@ document.getElementById('loginBtn').onclick=async()=>{
   await refreshCredits();
 };
 gen.onclick=async()=>{
-  const {data:{session},error:sessionError}=await supabaseClient.auth.getSession();
-  if(sessionError || !session){
+  // Получаем актуальную сессию напрямую из Supabase перед каждой генерацией.
+  // Это исправляет ситуацию, когда пользователь уже вошёл, но клиент держит
+  // устаревшее состояние сессии.
+  let session=null;
+  try{
+    const {data,error}=await supabaseClient.auth.getSession();
+    if(error) throw error;
+    session=data?.session||null;
+
+    // Если getSession() ещё не видит сессию, даём Supabase короткое время
+    // восстановить её из storage и проверяем ещё раз.
+    if(!session){
+      await new Promise(resolve=>setTimeout(resolve,300));
+      const retry=await supabaseClient.auth.getSession();
+      session=retry?.data?.session||null;
+    }
+  }catch(e){
+    status.textContent='❌ '+e.message;
+    return;
+  }
+
+  if(!session){
     status.textContent=currentLang==='ru'
       ? '🔒 Сначала зарегистрируйтесь или войдите в аккаунт.'
       : '🔒 Please register or log in first.';
@@ -463,6 +483,9 @@ gen.onclick=async()=>{
 
     const r=await fetch(API_BASE.replace(/\/$/,'')+'/api/generate',{
       method:'POST',
+      headers:{
+        'Authorization':'Bearer '+session.access_token
+      },
       body:fd
     });
     if(!r.ok){
