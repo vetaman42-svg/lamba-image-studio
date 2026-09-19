@@ -470,12 +470,8 @@ gen.onclick=async()=>{
 
   gen.disabled=true;
   status.textContent=translations[currentLang].sending;
-  let charged=false;
 
   try{
-    await consumeCredit();
-    charged=true;
-
     const fd=new FormData();
     fd.append('image',file.files[0]);
     fd.append('style',selectedStyle);
@@ -522,9 +518,6 @@ gen.onclick=async()=>{
     await refreshCredits();
     status.textContent=translations[currentLang].done;
   }catch(e){
-    if(charged){
-      try{ await refundCredit(); }catch(_){}
-    }
     status.textContent='❌ '+e.message;
   }finally{
     gen.disabled=false;
