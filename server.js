@@ -30,6 +30,17 @@ const PAYMENT_CREDITS = 10;
 // so payments and credits survive a Render restart.
 const payments = new Map();
 
+// WayForPay can send application/x-www-form-urlencoded where the WHOLE JSON
+// payload is used as the form field name. Capture that raw form body before
+// the normal Express urlencoded parser changes it into an object.
+app.use(
+  '/api/payment/wayforpay-callback',
+  express.text({
+    type: 'application/x-www-form-urlencoded',
+    limit: '1mb'
+  })
+);
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static('.'));
@@ -285,11 +296,72 @@ app.post('/api/payment/wayforpay-callback', async (req, res) => {
 
     let body = req.body || {};
 
-    // WayForPay may send the whole JSON object as the field name
-    // of an application/x-www-form-urlencoded request.
-    // Express can expose that request as an object with one or more keys,
-    // so inspect BOTH keys and values and try to recover the JSON payload.
-    if (!body.orderReference && body && typeof body === 'object') {
+    // Robustly parse WayForPay callbacks. In the observed callback,
+    // Content-Type is application/x-www-form-urlencoded and the entire JSON
+    // object is the form field name, with an empty value. Because the raw
+    // body is captured above, parse that format directly instead of relying
+    // on Express's urlencoded object representation.
+    if (typeof body === 'string') {
+      const rawForm = body;
+      console.log('Raw form callback length:', rawForm.length);
+
+      try {
+        const params = new URLSearchParams(rawForm);
+        const entries = Array.from(params.entries());
+
+        for (const [key, value] of entries) {
+          const candidates = [key, value];
+
+          for (let candidate of candidates) {
+            if (!candidate) continue;
+
+            let raw = String(candidate).trim();
+
+            // Some gateways/wrappers can leave an additional layer of
+            // backslash escaping around the JSON. Remove only the escaping
+            // that prevents JSON.parse from seeing normal JSON quotes.
+            raw = raw.replace(/\\\"/g, '"');
+            raw = raw.replace(/^['"]+|['"]+$/g, '').trim();
+
+            const start = raw.indexOf('{');
+            const end = raw.lastIndexOf('}');
+            if (start === -1 || end <= start) continue;
+
+            const jsonText = raw.slice(start, end + 1);
+
+            try {
+              const parsed = JSON.parse(jsonText);
+              if (parsed && typeof parsed === 'object' && parsed.orderReference) {
+                body = parsed;
+                console.log(
+                  'WayForPay raw form payload successfully parsed.'
+                );
+                break;
+              }
+            } catch (parseError) {
+              console.error(
+                'WayForPay raw form JSON parse failed:',
+                parseError?.message || parseError
+              );
+            }
+          }
+
+          if (body && typeof body === 'object' && body.orderReference) {
+            break;
+          }
+        }
+      } catch (formError) {
+        console.error(
+          'WayForPay URLSearchParams parsing failed:',
+          formError?.message || formError
+        );
+      }
+    }
+
+    // Fallback for JSON callbacks or environments where Express already
+    // produced an object. Also supports the previous broken form shape
+    // where the JSON was stored as an object key.
+    if (!body?.orderReference && body && typeof body === 'object') {
       const candidates = [];
 
       for (const [key, value] of Object.entries(body)) {
@@ -301,41 +373,34 @@ app.post('/api/payment/wayforpay-callback', async (req, res) => {
 
       for (const candidate of candidates) {
         let raw = candidate.trim();
-
         if (!raw) continue;
 
-        // Remove URL encoding if WayForPay/form parsing left it encoded.
         try {
           raw = decodeURIComponent(raw);
         } catch {
-          // Keep the original string when it is not valid URI encoding.
+          // Keep the original string when it is not URI encoded.
         }
 
         raw = raw.trim();
-
-        // Remove accidental wrapping quotes.
+        raw = raw.replace(/\\\"/g, '"');
         raw = raw.replace(/^['"]+|['"]+$/g, '').trim();
 
         const start = raw.indexOf('{');
         const end = raw.lastIndexOf('}');
-
         if (start === -1 || end <= start) continue;
 
-        const jsonText = raw.slice(start, end + 1);
-
         try {
-          const parsed = JSON.parse(jsonText);
-
-          if (parsed && typeof parsed === 'object') {
+          const parsed = JSON.parse(raw.slice(start, end + 1));
+          if (parsed && typeof parsed === 'object' && parsed.orderReference) {
             body = parsed;
             console.log(
-              'WayForPay form payload successfully parsed from form field.'
+              'WayForPay form payload successfully parsed from object field.'
             );
             break;
           }
         } catch (parseError) {
           console.error(
-            'WayForPay form JSON candidate parse failed:',
+            'WayForPay object-field JSON parse failed:',
             parseError?.message || parseError
           );
         }
@@ -904,3 +969,7 @@ app.listen(PORT, "0.0.0.0", () => console.log(`Lamba Remote Image Editor listeni
 
 
 
+
+
+    
+  
