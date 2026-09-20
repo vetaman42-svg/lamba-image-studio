@@ -181,20 +181,62 @@ async function supabaseRequest(path, options = {}) {
 // The 94 credits already stored in user_credits are left untouched.
 // ============================================================
 
+// profiles in this project does NOT contain an email column.
+// Therefore we resolve the user's email through Supabase Auth,
+// then use the returned Auth user id with public.user_credits.
+// This fixes: "column profiles.email does not exist".
 async function findProfileByEmail(email) {
   const normalized = normalizeEmail(email);
   if (!normalized) return null;
 
-  const query =
-    `/rest/v1/profiles?select=id,email` +
-    `&email=eq.${encodeURIComponent(normalized)}` +
-    `&limit=1`;
+  const response = await fetch(
+    `${SUPABASE_URL}/auth/v1/admin/users?per_page=1000&page=1`,
+    {
+      method: 'GET',
+      headers: {
+        apikey: SUPABASE_SERVICE_ROLE_KEY,
+        Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`
+      }
+    }
+  );
 
-  const rows = await supabaseRequest(query, {
-    method: 'GET'
-  });
+  const text = await response.text();
 
-  return Array.isArray(rows) && rows.length ? rows[0] : null;
+  let data = null;
+  if (text) {
+    try {
+      data = JSON.parse(text);
+    } catch {
+      data = null;
+    }
+  }
+
+  if (!response.ok) {
+    throw new Error(
+      data?.msg ||
+      data?.message ||
+      `Supabase Auth HTTP ${response.status}`
+    );
+  }
+
+  const users = Array.isArray(data)
+    ? data
+    : Array.isArray(data?.users)
+      ? data.users
+      : [];
+
+  const user = users.find(
+    item => normalizeEmail(item?.email) === normalized
+  );
+
+  if (!user?.id || !isUuid(user.id)) {
+    return null;
+  }
+
+  return {
+    id: user.id,
+    email: user.email
+  };
 }
 
 async function getCreditsByUserId(userId) {
