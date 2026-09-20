@@ -476,6 +476,17 @@ gen.onclick=async()=>{
     fd.append('image',file.files[0]);
     fd.append('style',selectedStyle);
     fd.append('prompt',prompt.value);
+    // Передаём email текущего вошедшего пользователя.
+    // Сервер /api/generate использует его для поиска профиля и кредитов.
+    const userEmail=String(session.user?.email||'').trim().toLowerCase();
+    if(!userEmail){
+      throw new Error(
+        currentLang==='ru'
+          ? 'Не удалось получить email пользователя из сессии.'
+          : 'Could not get the user email from the session.'
+      );
+    }
+    fd.append('email',userEmail);
 
     const r=await fetch(API_BASE.replace(/\/$/,'')+'/api/generate',{
       method:'POST',
