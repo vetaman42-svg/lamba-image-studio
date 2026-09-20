@@ -476,18 +476,25 @@ gen.onclick=async()=>{
     fd.append('image',file.files[0]);
     fd.append('style',selectedStyle);
     fd.append('prompt',prompt.value);
-    // Передаём email пользователя в /api/generate.
-    // Сначала берём email из активной Supabase-сессии.
-    // Если Supabase не вернул email, используем email из поля авторизации.
-    const sessionEmail=String(session?.user?.email||'').trim().toLowerCase();
-    const inputEmail=String(document.getElementById('authEmail')?.value||'').trim().toLowerCase();
-    const userEmail=sessionEmail||inputEmail;
+    // Надёжно получаем email именно из авторизованного пользователя Supabase.
+    // getUser() запрашивает актуального пользователя, поэтому не зависим
+    // от того, что лежит/не лежит в локальном поле Email на странице.
+    let userEmail='';
+    try{
+      const {data:userData,error:userError}=await supabaseClient.auth.getUser();
+      if(userError) throw userError;
+      userEmail=String(userData?.user?.email||'').trim().toLowerCase();
+    }catch(_){
+      // Резерв: email из текущей сессии или из поля авторизации.
+      userEmail=String(session?.user?.email||'').trim().toLowerCase()
+        || String(document.getElementById('authEmail')?.value||'').trim().toLowerCase();
+    }
 
     if(!userEmail){
       throw new Error(
         currentLang==='ru'
-          ? 'Нужен email пользователя.'
-          : 'User email is required.'
+          ? 'Не удалось получить email авторизованного пользователя. Выйдите и войдите снова.'
+          : 'Could not get the email of the logged-in user. Please log in again.'
       );
     }
 
