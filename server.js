@@ -2,979 +2,1187 @@ import express from 'express';
 import multer from 'multer';
 import Replicate from 'replicate';
 import crypto from 'crypto';
-import fs from 'fs/promises';
-import path from 'path';
-import os from 'os';
 
 const app = express();
 const upload = multer({ limits: { fileSize: 20 * 1024 * 1024 } });
 const PORT = process.env.PORT || 3000;
-const TOKEN = process.env.REPLICATE_API_TOKEN;
+
+// ============================================================
+// LAMBA IMAGE STUDIO
+// Paddle + Supabase + Render
+//
+// IMPORTANT:
+// - Existing Supabase credits are NOT reset or modified on startup.
+// - Payment package: $2.99 = 10 credits.
+// - 1 credit is consumed only after a successful image generation.
+// - A completed Paddle transaction is fulfilled only once.
+// - Secrets must be stored in Render Environment Variables.
+// ============================================================
+
+// -------------------- Replicate --------------------
+
+const TOKEN = process.env.REPLICATE_API_TOKEN || '';
 const replicate = TOKEN ? new Replicate({ auth: TOKEN }) : null;
 
-// WayForPay configuration. Keep the secret only in Render Environment Variables.
-const W4P_MERCHANT = process.env.WAYFORPAY_MERCHANT_ACCOUNT || '';
-const W4P_SECRET = process.env.WAYFORPAY_SECRET_KEY || '';
-const W4P_DOMAIN = process.env.WAYFORPAY_DOMAIN || '';
-const W4P_RETURN_URL = process.env.WAYFORPAY_RETURN_URL || '';
-const W4P_SERVICE_URL = process.env.WAYFORPAY_SERVICE_URL || '';
+// -------------------- Paddle --------------------
 
-// Supabase configuration. Keep the service-role key only in Render Environment Variables.
-const SUPABASE_URL = (process.env.SUPABASE_URL || '').replace(/\/$/, '');
-const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+const PADDLE_API_KEY = process.env.PADDLE_API_KEY || '';
+const PADDLE_WEBHOOK_SECRET =
+  process.env.PADDLE_WEBHOOK_SECRET ||
+  process.env.PADDLE_WEBHOOK_SECRET_KEY ||
+  '';
+
+const PADDLE_PRICE_ID =
+  process.env.PADDLE_PRICE_ID ||
+  'pri_01m2yhnx9141nykm53kqaf2dyp';
+
+const PADDLE_ENV = (process.env.PADDLE_ENV || 'sandbox').toLowerCase();
+
+const PADDLE_API_BASE =
+  PADDLE_ENV === 'live'
+    ? 'https://api.paddle.com'
+    : 'https://sandbox-api.paddle.com';
 
 const PAYMENT_AMOUNT_USD = 2.99;
 const PAYMENT_CREDITS = 10;
 
-// Temporary payment state. For production, replace this Map with Supabase/DB
-// so payments and credits survive a Render restart.
-const payments = new Map();
+// -------------------- Supabase --------------------
+//
+// Use the service-role key ONLY on Render.
+// Never put it into the HTML/frontend.
 
-// WayForPay can send application/x-www-form-urlencoded where the WHOLE JSON
-// payload is used as the form field name. Capture that raw form body before
-// the normal Express urlencoded parser changes it into an object.
-app.use(
-  '/api/payment/wayforpay-callback',
-  express.text({
-    type: 'application/x-www-form-urlencoded',
-    limit: '1mb'
-  })
-);
+const SUPABASE_URL = String(process.env.SUPABASE_URL || '').replace(/\/+$/, '');
 
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-app.use(express.static('.'));
+const SUPABASE_SERVICE_ROLE_KEY =
+  process.env.SUPABASE_SERVICE_ROLE_KEY ||
+  process.env.SUPABASE_SERVICE_KEY ||
+  '';
 
-// WayForPay returns the customer to this URL with POST data.
-// Redirect POST / to GET / so the Lamba page opens instead of showing "Cannot POST /".
-app.post('/', (_req, res) => {
-  res.redirect(303, '/');
-});
+const SUPABASE_HEADERS = {
+  apikey: SUPABASE_SERVICE_ROLE_KEY,
+  Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+  'Content-Type': 'application/json'
+};
 
-app.get('/api/health', (_req, res) => {
-  res.json({ ok: true, provider: 'replicate', model: 'black-forest-labs/flux-kontext-pro', tokenConfigured: !!TOKEN });
-});
+// ============================================================
+// Small helpers
+// ============================================================
 
-function wayForPaySignature(parts) {
-  return crypto
-    .createHmac('md5', W4P_SECRET)
-    .update(parts.join(';'), 'utf8')
-    .digest('hex');
+function normalizeEmail(value) {
+  return String(value || '').trim().toLowerCase();
 }
 
-function wayForPayReady() {
-  return !!(W4P_MERCHANT && W4P_SECRET && W4P_DOMAIN && W4P_RETURN_URL && W4P_SERVICE_URL);
+function isUuid(value) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    String(value || '')
+  );
 }
 
-function supabaseReady() {
-  return !!(SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY);
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-async function getAuthenticatedSupabaseUser(req) {
-  if (!supabaseReady()) {
-    throw new Error('Supabase server credentials не настроены.');
+// In-memory lock. It prevents two copies of the SAME Paddle transaction
+// from being fulfilled simultaneously inside one Render instance.
+const transactionLocks = new Map();
+
+async function withTransactionLock(transactionId, fn) {
+  const key = String(transactionId || '');
+
+  while (transactionLocks.has(key)) {
+    await transactionLocks.get(key);
   }
 
-  const authHeader = String(req.headers.authorization || '');
-  if (!authHeader.startsWith('Bearer ')) {
-    return null;
+  let release;
+  const lock = new Promise(resolve => {
+    release = resolve;
+  });
+
+  transactionLocks.set(key, lock);
+
+  try {
+    return await fn();
+  } finally {
+    if (transactionLocks.get(key) === lock) {
+      transactionLocks.delete(key);
+    }
+    release();
+  }
+}
+
+// ============================================================
+// Supabase REST helper
+// No extra npm package is required for Supabase.
+// ============================================================
+
+async function supabaseRequest(path, options = {}) {
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+    throw new Error(
+      'Supabase не настроен. Добавь SUPABASE_URL и SUPABASE_SERVICE_ROLE_KEY в Render.'
+    );
   }
 
-  const response = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
+  const response = await fetch(`${SUPABASE_URL}${path}`, {
+    ...options,
     headers: {
-      apikey: SUPABASE_SERVICE_ROLE_KEY,
-      Authorization: authHeader
+      ...SUPABASE_HEADERS,
+      ...(options.headers || {})
     }
   });
 
-  if (!response.ok) {
-    return null;
+  const text = await response.text();
+
+  let data = null;
+  if (text) {
+    try {
+      data = JSON.parse(text);
+    } catch {
+      data = text;
+    }
   }
 
-  return await response.json();
+  if (!response.ok) {
+    const detail =
+      data?.message ||
+      data?.hint ||
+      data?.details ||
+      data?.error_description ||
+      data?.error ||
+      text ||
+      `Supabase HTTP ${response.status}`;
+
+    const error = new Error(String(detail));
+    error.status = response.status;
+    error.details = data;
+    throw error;
+  }
+
+  return data;
 }
 
-async function addCreditsToUser(userId, amount) {
-  if (!supabaseReady()) {
-    throw new Error('Supabase server credentials не настроены.');
+// ============================================================
+// Supabase data access
+// Tables used:
+//
+// public.profiles
+//   id uuid
+//   email text
+//
+// public.user_credits
+//   user_id uuid
+//   credits int4
+//
+// public.payment_orders
+//   order_reference text
+//   user_id uuid
+//   amount numeric
+//   currency text
+//
+// The 94 credits already stored in user_credits are left untouched.
+// ============================================================
+
+async function findProfileByEmail(email) {
+  const normalized = normalizeEmail(email);
+  if (!normalized) return null;
+
+  const query =
+    `/rest/v1/profiles?select=id,email` +
+    `&email=eq.${encodeURIComponent(normalized)}` +
+    `&limit=1`;
+
+  const rows = await supabaseRequest(query, {
+    method: 'GET'
+  });
+
+  return Array.isArray(rows) && rows.length ? rows[0] : null;
+}
+
+async function getCreditsByUserId(userId) {
+  if (!isUuid(userId)) {
+    throw new Error('Некорректный user_id.');
   }
 
-  const headers = {
-    apikey: SUPABASE_SERVICE_ROLE_KEY,
-    Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
-    'Content-Type': 'application/json'
-  };
+  const query =
+    `/rest/v1/user_credits?select=user_id,credits` +
+    `&user_id=eq.${encodeURIComponent(userId)}` +
+    `&limit=1`;
 
-  const readResponse = await fetch(
-    `${SUPABASE_URL}/rest/v1/user_credits?user_id=eq.${encodeURIComponent(userId)}&select=user_id,credits`,
-    { headers }
-  );
+  const rows = await supabaseRequest(query, {
+    method: 'GET'
+  });
 
-  if (!readResponse.ok) {
-    throw new Error(`Supabase read credits failed: HTTP ${readResponse.status}`);
+  return Array.isArray(rows) && rows.length
+    ? {
+        user_id: rows[0].user_id,
+        credits: Number(rows[0].credits || 0)
+      }
+    : null;
+}
+
+// Atomic compare-and-swap increment.
+// This never blindly overwrites another update.
+async function addCreditsAtomic(userId, amount) {
+  const delta = Number(amount || 0);
+
+  if (!isUuid(userId) || !Number.isInteger(delta) || delta <= 0) {
+    throw new Error('Некорректные данные для начисления кредитов.');
   }
 
-  const rows = await readResponse.json();
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const current = await getCreditsByUserId(userId);
 
-  if (!Array.isArray(rows) || !rows.length) {
-    throw new Error('Пользователь не найден в user_credits.');
-  }
+    if (!current) {
+      throw new Error(
+        'Для пользователя не найдена строка public.user_credits.'
+      );
+    }
 
-  const currentCredits = Number(rows[0].credits) || 0;
-  const newCredits = currentCredits + Number(amount);
+    const oldCredits = Number(current.credits || 0);
+    const newCredits = oldCredits + delta;
 
-  const updateResponse = await fetch(
-    `${SUPABASE_URL}/rest/v1/user_credits?user_id=eq.${encodeURIComponent(userId)}`,
-    {
+    const query =
+      `/rest/v1/user_credits` +
+      `?user_id=eq.${encodeURIComponent(userId)}` +
+      `&credits=eq.${encodeURIComponent(oldCredits)}`;
+
+    const updated = await supabaseRequest(query, {
       method: 'PATCH',
-      headers: { ...headers, Prefer: 'return=representation' },
+      headers: {
+        Prefer: 'return=representation'
+      },
       body: JSON.stringify({
         credits: newCredits,
         updated_at: new Date().toISOString()
       })
-    }
-  );
+    });
 
-  if (!updateResponse.ok) {
-    const details = await updateResponse.text();
-    throw new Error(
-      `Supabase update credits failed: HTTP ${updateResponse.status} ${details}`
-    );
+    if (Array.isArray(updated) && updated.length) {
+      return {
+        oldCredits,
+        newCredits
+      };
+    }
+
+    await sleep(25 + attempt * 25);
   }
 
-  const updatedRows = await updateResponse.json();
-
-  return Number(updatedRows?.[0]?.credits ?? newCredits);
+  throw new Error(
+    'Не удалось атомарно обновить баланс кредитов. Попробуй ещё раз.'
+  );
 }
 
-// Create a WayForPay invoice for 10 image generations for $2.99.
-app.post(['/api/payment/create', '/api/create-checkout-session'], async (req, res) => {
-  try {
-    if (!wayForPayReady()) {
-      return res.status(500).json({
-        error: 'WayForPay не настроен. Добавь WAYFORPAY_MERCHANT_ACCOUNT, WAYFORPAY_SECRET_KEY, WAYFORPAY_DOMAIN, WAYFORPAY_RETURN_URL и WAYFORPAY_SERVICE_URL в Render.'
-      });
+// Atomic compare-and-swap decrement.
+// A credit is removed only if the current balance still equals the
+// balance we read immediately before the update.
+async function spendCreditAtomic(userId) {
+  if (!isUuid(userId)) {
+    throw new Error('Некорректный user_id.');
+  }
+
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const current = await getCreditsByUserId(userId);
+
+    if (!current) {
+      throw new Error(
+        'Для пользователя не найдена строка public.user_credits.'
+      );
     }
 
-    const user = await getAuthenticatedSupabaseUser(req);
-    if (!user?.id) {
-      return res.status(401).json({
-        error: 'Сначала войдите в аккаунт Lamba Image Studio.'
-      });
+    const oldCredits = Number(current.credits || 0);
+
+    if (oldCredits < 1) {
+      return {
+        success: false,
+        credits: 0
+      };
     }
 
-    const orderReference = `LAMBA10-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
-    const orderDate = Math.floor(Date.now() / 1000);
-    const email = String(user.email || req.body?.email || '').trim();
+    const newCredits = oldCredits - 1;
 
-    const productName = ['Lamba Image Studio — 10 генераций'];
-    const productCount = [1];
-    const productPrice = [PAYMENT_AMOUNT_USD];
+    const query =
+      `/rest/v1/user_credits` +
+      `?user_id=eq.${encodeURIComponent(userId)}` +
+      `&credits=eq.${encodeURIComponent(oldCredits)}`;
 
-    const signature = wayForPaySignature([
-      W4P_MERCHANT,
-      W4P_DOMAIN,
-      orderReference,
-      orderDate,
-      PAYMENT_AMOUNT_USD,
-      'USD',
-      ...productName,
-      ...productCount,
-      ...productPrice
-    ]);
-
-    const payload = {
-      transactionType: 'CREATE_INVOICE',
-      merchantAccount: W4P_MERCHANT,
-      merchantAuthType: 'SimpleSignature',
-      merchantDomainName: W4P_DOMAIN,
-      merchantSignature: signature,
-      apiVersion: 1,
-      language: 'RU',
-      serviceUrl: W4P_SERVICE_URL,
-      returnUrl: W4P_RETURN_URL,
-      orderReference,
-      orderDate,
-      amount: PAYMENT_AMOUNT_USD,
-      currency: 'USD',
-      orderTimeout: 86400,
-      productName,
-      productPrice,
-      productCount,
-      ...(email ? { clientEmail: email } : {})
-    };
-
-    const response = await fetch('https://api.wayforpay.com/api', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
+    const updated = await supabaseRequest(query, {
+      method: 'PATCH',
+      headers: {
+        Prefer: 'return=representation'
+      },
+      body: JSON.stringify({
+        credits: newCredits,
+        updated_at: new Date().toISOString()
+      })
     });
 
-    const data = await response.json();
-
-    if (!response.ok || !data.invoiceUrl) {
-      console.error('WayForPay create invoice:', data);
-      return res.status(502).json({
-        error: data?.reason || data?.reasonCode || 'WayForPay не создал счёт.',
-        details: data
-      });
+    if (Array.isArray(updated) && updated.length) {
+      return {
+        success: true,
+        credits: newCredits
+      };
     }
 
-    payments.set(orderReference, {
-      orderReference,
-      userId: user.id,
-      amount: PAYMENT_AMOUNT_USD,
-      currency: 'USD',
-      credits: PAYMENT_CREDITS,
-      email,
-      status: 'Pending',
-      paid: false,
-      credited: false,
-      createdAt: Date.now()
-    });
+    await sleep(25 + attempt * 25);
+  }
 
-// Save payment order in Supabase
-const savePaymentResponse = await fetch(
-  `${SUPABASE_URL}/rest/v1/payment_orders`,
-  {
+  return {
+    success: false,
+    conflict: true
+  };
+}
+
+async function findPaymentOrder(transactionId) {
+  const id = String(transactionId || '').trim();
+  if (!id) return null;
+
+  const query =
+    `/rest/v1/payment_orders?select=order_reference,user_id,amount,currency` +
+    `&order_reference=eq.${encodeURIComponent(id)}` +
+    `&limit=1`;
+
+  const rows = await supabaseRequest(query, {
+    method: 'GET'
+  });
+
+  return Array.isArray(rows) && rows.length ? rows[0] : null;
+}
+
+// Insert the Paddle transaction into the payment ledger.
+// order_reference must be unique/primary in the existing table so the
+// same Paddle transaction cannot be recorded twice.
+async function createPaymentOrder(transactionId, userId) {
+  const row = {
+    order_reference: String(transactionId),
+    user_id: userId,
+    amount: PAYMENT_AMOUNT_USD,
+    currency: 'USD'
+  };
+
+  const rows = await supabaseRequest('/rest/v1/payment_orders', {
     method: 'POST',
     headers: {
-      apikey: SUPABASE_SERVICE_ROLE_KEY,
-      Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
-      'Content-Type': 'application/json',
-      Prefer: 'return=representation'
+      Prefer: 'return=representation,resolution=ignore-duplicates'
     },
-    body: JSON.stringify({
-      order_reference: orderReference,
-      user_id: user.id,
-      amount: PAYMENT_AMOUNT_USD,
-      currency: 'USD',
-      credits: PAYMENT_CREDITS,
-      status: 'Pending',
-      credited: false
-    })
+    body: JSON.stringify(row)
+  });
+
+  return Array.isArray(rows) && rows.length ? rows[0] : null;
+}
+
+// ============================================================
+// Paddle API
+// ============================================================
+
+async function paddleRequest(endpoint, options = {}) {
+  if (!PADDLE_API_KEY) {
+    throw new Error('PADDLE_API_KEY не настроен на Render.');
+  }
+
+  const response = await fetch(`${PADDLE_API_BASE}${endpoint}`, {
+    ...options,
+    headers: {
+      Authorization: `Bearer ${PADDLE_API_KEY}`,
+      'Content-Type': 'application/json',
+      ...(options.headers || {})
+    }
+  });
+
+  const data = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    const message =
+      data?.error?.detail ||
+      data?.error?.code ||
+      data?.detail ||
+      'Ошибка Paddle API.';
+
+    const error = new Error(message);
+    error.status = response.status;
+    error.details = data;
+    throw error;
+  }
+
+  return data;
+}
+
+// ============================================================
+// Paddle webhook signature
+//
+// Paddle sends:
+// Paddle-Signature: ts=...;h1=...
+//
+// The signature is HMAC-SHA256(ts + ":" + rawBody).
+// The raw request body MUST be preserved.
+// ============================================================
+
+function timingSafeEqualHex(a, b) {
+  try {
+    const aa = Buffer.from(String(a || ''), 'hex');
+    const bb = Buffer.from(String(b || ''), 'hex');
+
+    return aa.length > 0 &&
+      aa.length === bb.length &&
+      crypto.timingSafeEqual(aa, bb);
+  } catch {
+    return false;
+  }
+}
+
+function verifyPaddleWebhook(rawBody, signatureHeader) {
+  if (!PADDLE_WEBHOOK_SECRET || !signatureHeader) {
+    return false;
+  }
+
+  const parts = String(signatureHeader)
+    .split(';')
+    .map(x => x.trim());
+
+  const ts = parts.find(x => x.startsWith('ts='))?.slice(3);
+
+  // Paddle can expose more than one h1 during secret rotation.
+  const signatures = parts
+    .filter(x => x.startsWith('h1='))
+    .map(x => x.slice(3))
+    .filter(Boolean);
+
+  if (!ts || !signatures.length) {
+    return false;
+  }
+
+  const timestamp = Number(ts);
+  if (!Number.isFinite(timestamp)) {
+    return false;
+  }
+
+  // Paddle's SDK uses a short timestamp tolerance.
+  const age = Math.abs(Math.floor(Date.now() / 1000) - timestamp);
+
+  if (age > 5) {
+    return false;
+  }
+
+  const signedPayload = `${ts}:${rawBody.toString('utf8')}`;
+
+  const expected = crypto
+    .createHmac('sha256', PADDLE_WEBHOOK_SECRET)
+    .update(signedPayload, 'utf8')
+    .digest('hex');
+
+  return signatures.some(signature =>
+    timingSafeEqualHex(expected, signature)
+  );
+}
+
+// ============================================================
+// Paddle webhook
+//
+// IMPORTANT: this route is BEFORE express.json().
+// ============================================================
+
+app.post(
+  '/api/payment/paddle-webhook',
+  express.raw({ type: '*/*' }),
+  async (req, res) => {
+    try {
+      const rawBody = Buffer.isBuffer(req.body) ? req.body : Buffer.from('');
+      const signature = req.get('Paddle-Signature') || '';
+
+      if (!verifyPaddleWebhook(rawBody, signature)) {
+        console.error('Paddle webhook: invalid signature.');
+        return res.status(401).json({
+          error: 'Неверная подпись Paddle.'
+        });
+      }
+
+      const event = JSON.parse(rawBody.toString('utf8'));
+
+      const eventId =
+        event?.event_id ||
+        event?.notification_id ||
+        '';
+
+      const eventType = event?.event_type || '';
+      const data = event?.data || {};
+
+      console.log(
+        `Paddle webhook received: ${eventType}; event=${eventId || 'n/a'}`
+      );
+
+      // We fulfill only completed transactions.
+      if (eventType !== 'transaction.completed') {
+        return res.json({
+          ok: true,
+          ignored: true,
+          eventType
+        });
+      }
+
+      const transactionId = String(data?.id || '').trim();
+
+      if (!transactionId) {
+        console.error('Paddle webhook: transaction id missing.');
+        return res.status(400).json({
+          error: 'В webhook отсутствует transaction id.'
+        });
+      }
+
+      return await withTransactionLock(transactionId, async () => {
+        // --------------------------------------------------------
+        // 1. Durable DB idempotency check.
+        // If this Paddle transaction is already in payment_orders,
+        // NEVER add the 10 credits again.
+        // --------------------------------------------------------
+
+        const existingOrder = await findPaymentOrder(transactionId);
+
+        if (existingOrder) {
+          console.log(
+            `Paddle duplicate ignored: ${transactionId}`
+          );
+
+          const balance = await getCreditsByUserId(
+            existingOrder.user_id
+          );
+
+          return res.json({
+            ok: true,
+            duplicate: true,
+            transactionId,
+            credits: balance?.credits ?? null
+          });
+        }
+
+        // --------------------------------------------------------
+        // 2. Identify the user.
+        // user_id is placed into custom_data when the transaction
+        // is created. Email is kept as a fallback.
+        // --------------------------------------------------------
+
+        const customData = data?.custom_data || {};
+
+        let userId = String(customData?.user_id || '').trim();
+        const email = normalizeEmail(customData?.email);
+
+        if (!isUuid(userId)) {
+          userId = '';
+        }
+
+        if (!userId && email) {
+          const profile = await findProfileByEmail(email);
+          userId = profile?.id || '';
+        }
+
+        if (!isUuid(userId)) {
+          console.error(
+            `Paddle webhook: user not found for transaction ${transactionId}; email=${email}`
+          );
+
+          // Return 500 so Paddle can retry the webhook after the
+          // user/account data has been fixed.
+          return res.status(500).json({
+            error: 'Пользователь для платежа не найден в Supabase.'
+          });
+        }
+
+        // --------------------------------------------------------
+        // 3. Check the actual Paddle transaction amount/price.
+        // The server-created transaction uses our fixed price ID.
+        // --------------------------------------------------------
+
+        const itemPriceIds = Array.isArray(data?.items)
+          ? data.items
+              .map(item => item?.price?.id || item?.price_id)
+              .filter(Boolean)
+          : [];
+
+        if (
+          itemPriceIds.length &&
+          !itemPriceIds.includes(PADDLE_PRICE_ID)
+        ) {
+          console.error(
+            `Paddle webhook: unexpected price for ${transactionId}`,
+            itemPriceIds
+          );
+
+          return res.status(400).json({
+            error: 'Неожиданный Paddle price_id.'
+          });
+        }
+
+        // --------------------------------------------------------
+        // 4. Credit the user exactly once for this transaction.
+        //
+        // First the ledger is checked above. Then credits are
+        // incremented with an atomic compare-and-swap update.
+        // Finally the Paddle transaction is written to payment_orders.
+        //
+        // The in-memory transaction lock prevents the same transaction
+        // from being fulfilled concurrently on one Render instance.
+        // The payment_orders unique key provides durable duplicate
+        // protection across normal webhook retries/restarts.
+        // --------------------------------------------------------
+
+        const creditResult = await addCreditsAtomic(
+          userId,
+          PAYMENT_CREDITS
+        );
+
+        const insertedOrder = await createPaymentOrder(
+          transactionId,
+          userId
+        );
+
+        // If another worker inserted the order between the check and
+        // our insert, do not silently continue with another credit.
+        // This situation is extremely unlikely with the Render lock,
+        // but we protect the database ledger here as well.
+        if (!insertedOrder) {
+          console.error(
+            `Paddle payment ledger conflict for ${transactionId}.`
+          );
+
+          return res.status(500).json({
+            error:
+              'Платёж уже обрабатывается другим процессом. Paddle повторит webhook.'
+          });
+        }
+
+        console.log(
+          `Paddle payment completed: ${transactionId}; ` +
+          `${userId} +${PAYMENT_CREDITS} credits; ` +
+          `balance=${creditResult.newCredits}`
+        );
+
+        return res.json({
+          ok: true,
+          transactionId,
+          creditsAdded: PAYMENT_CREDITS,
+          userCredits: creditResult.newCredits
+        });
+      });
+    } catch (err) {
+      console.error('Paddle webhook error:', err);
+
+      return res.status(500).json({
+        error:
+          err?.message ||
+          'Ошибка обработки Paddle webhook.'
+      });
+    }
   }
 );
 
-if (!savePaymentResponse.ok) {
-  const details = await savePaymentResponse.text();
-  throw new Error(
-    `Supabase save payment failed: HTTP ${savePaymentResponse.status} ${details}`
-  );
-}
+// ============================================================
+// Normal JSON/static middleware AFTER webhook route
+// ============================================================
 
-console.log('Payment order saved in Supabase:', orderReference);
-    res.json({
-  ok: true,
-  orderReference,
-  url: data.invoiceUrl,
-  invoiceUrl: data.invoiceUrl,
-  amount: PAYMENT_AMOUNT_USD,
-  currency: 'USD',
-  credits: PAYMENT_CREDITS
+app.use(express.json({ limit: '2mb' }));
+app.use(express.static('.'));
+
+// ============================================================
+// Health
+// ============================================================
+
+app.get('/api/health', (_req, res) => {
+  res.json({
+    ok: true,
+    provider: 'paddle',
+    paddleEnvironment: PADDLE_ENV,
+    paddleConfigured: !!PADDLE_API_KEY,
+    paddleWebhookConfigured: !!PADDLE_WEBHOOK_SECRET,
+    paddlePriceConfigured: !!PADDLE_PRICE_ID,
+    supabaseConfigured:
+      !!SUPABASE_URL && !!SUPABASE_SERVICE_ROLE_KEY,
+    replicateConfigured: !!TOKEN,
+    package: {
+      amount: PAYMENT_AMOUNT_USD,
+      credits: PAYMENT_CREDITS,
+      currency: 'USD'
+    },
+    model: 'black-forest-labs/flux-kontext-pro'
+  });
 });
 
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: err?.message || 'Ошибка создания платежа.' });
-  }
-});
+// ============================================================
+// Create Paddle transaction
+// $2.99 = 10 credits
+// ============================================================
 
-// WayForPay payment callback
-app.post('/api/payment/wayforpay-callback', async (req, res) => {
-  console.log('=== WAYFORPAY CALLBACK START ===');
-  console.log('Content-Type:', req.headers['content-type']);
-  console.log('Raw callback body:', req.body);
-
+app.post('/api/payment/create', async (req, res) => {
   try {
-    if (!W4P_SECRET) {
-      console.error('WAYFORPAY_SECRET_KEY is missing');
-      return res.status(500).json({
-        error: 'WAYFORPAY_SECRET_KEY не настроен.'
-      });
-    }
+    const email = normalizeEmail(req.body?.email);
 
-    let body = req.body || {};
-
-    // Robustly parse WayForPay callbacks. In the observed callback,
-    // Content-Type is application/x-www-form-urlencoded and the entire JSON
-    // object is the form field name, with an empty value. Because the raw
-    // body is captured above, parse that format directly instead of relying
-    // on Express's urlencoded object representation.
-    if (typeof body === 'string') {
-      const rawForm = body;
-      console.log('Raw form callback length:', rawForm.length);
-
-      try {
-        const params = new URLSearchParams(rawForm);
-        const entries = Array.from(params.entries());
-
-        for (const [key, value] of entries) {
-          const candidates = [key, value];
-
-          for (let candidate of candidates) {
-            if (!candidate) continue;
-
-            let raw = String(candidate).trim();
-
-            // Some gateways/wrappers can leave an additional layer of
-            // backslash escaping around the JSON. Remove only the escaping
-            // that prevents JSON.parse from seeing normal JSON quotes.
-            // IMPORTANT: do not unescape quotes before JSON.parse().
-            // WayForPay can send escaped characters inside JSON values.
-            // Unescaping here can corrupt a valid callback payload.
-            raw = raw.replace(/^['"]+|['"]+$/g, '').trim();
-
-            const start = raw.indexOf('{');
-            const end = raw.lastIndexOf('}');
-            if (start === -1 || end <= start) continue;
-
-            const jsonText = raw.slice(start, end + 1);
-
-            try {
-              const parsed = JSON.parse(jsonText);
-              if (parsed && typeof parsed === 'object' && parsed.orderReference) {
-                body = parsed;
-                console.log(
-                  'WayForPay raw form payload successfully parsed.'
-                );
-                break;
-              }
-            } catch (parseError) {
-              console.error(
-                'WayForPay raw form JSON parse failed:',
-                parseError?.message || parseError
-              );
-            }
-          }
-
-          if (body && typeof body === 'object' && body.orderReference) {
-            break;
-          }
-        }
-      } catch (formError) {
-        console.error(
-          'WayForPay URLSearchParams parsing failed:',
-          formError?.message || formError
-        );
-      }
-    }
-
-    // Fallback for JSON callbacks or environments where Express already
-    // produced an object. Also supports the previous broken form shape
-    // where the JSON was stored as an object key.
-    if (!body?.orderReference && body && typeof body === 'object') {
-      const candidates = [];
-
-      for (const [key, value] of Object.entries(body)) {
-        candidates.push(String(key ?? ''));
-        if (value !== undefined && value !== null) {
-          candidates.push(String(value));
-        }
-      }
-
-      for (const candidate of candidates) {
-        let raw = candidate.trim();
-        if (!raw) continue;
-
-        try {
-          raw = decodeURIComponent(raw);
-        } catch {
-          // Keep the original string when it is not URI encoded.
-        }
-
-        raw = raw.trim();
-        // IMPORTANT: do not unescape quotes before JSON.parse().
-        // WayForPay can send escaped characters inside JSON values.
-        // Unescaping here can corrupt a valid callback payload.
-        raw = raw.replace(/^['"]+|['"]+$/g, '').trim();
-
-        const start = raw.indexOf('{');
-        const end = raw.lastIndexOf('}');
-        if (start === -1 || end <= start) continue;
-
-        try {
-          const parsed = JSON.parse(raw.slice(start, end + 1));
-          if (parsed && typeof parsed === 'object' && parsed.orderReference) {
-            body = parsed;
-            console.log(
-              'WayForPay form payload successfully parsed from object field.'
-            );
-            break;
-          }
-        } catch (parseError) {
-          console.error(
-            'WayForPay object-field JSON parse failed:',
-            parseError?.message || parseError
-          );
-        }
-      }
-    }
-
-    console.log('Parsed orderReference:', body.orderReference);
-    console.log('Parsed transactionStatus:', body.transactionStatus);
-    console.log('Parsed amount:', body.amount);
-    console.log('Parsed currency:', body.currency);
-
-    if (!body.orderReference) {
-      console.error(
-        'WayForPay callback parsing failed. Body keys:',
-        Object.keys(body || {})
-      );
-      console.error('No orderReference in callback');
+    if (!email) {
       return res.status(400).json({
-        error: 'WayForPay callback не содержит orderReference.'
+        error: 'Нужен email пользователя.'
       });
     }
 
-    // Verify WayForPay signature
-    const expectedSignature = wayForPaySignature([
-      body.merchantAccount || '',
-      body.orderReference || '',
-      body.amount || '',
-      body.currency || '',
-      body.authCode || '',
-      body.cardPan || '',
-      body.transactionStatus || '',
-      body.reasonCode || ''
-    ]);
-
-    console.log('Signature received:', body.merchantSignature);
-    console.log('Signature expected:', expectedSignature);
-
-    if (
-      !body.merchantSignature ||
-      body.merchantSignature !== expectedSignature
-    ) {
-      console.error('WAYFORPAY SIGNATURE MISMATCH');
-
-      return res.status(400).json({
-        error: 'Неверная подпись WayForPay.'
-      });
-    }
-
-    console.log('Signature OK');
-
-    if (!supabaseReady()) {
-      console.error('Supabase is not configured');
+    if (!PADDLE_API_KEY || !PADDLE_PRICE_ID) {
       return res.status(500).json({
-        error: 'Supabase server credentials не настроены.'
+        error:
+          'Paddle не настроен. Добавь PADDLE_API_KEY и PADDLE_PRICE_ID в Render.'
       });
     }
 
-    // Find payment order
-    console.log('Looking for payment in Supabase:', body.orderReference);
-
-    const paymentResponse = await fetch(
-      `${SUPABASE_URL}/rest/v1/payment_orders?order_reference=eq.${encodeURIComponent(body.orderReference)}&select=*`,
-      {
-        headers: {
-          apikey: SUPABASE_SERVICE_ROLE_KEY,
-          Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`
-        },
-        signal: AbortSignal.timeout(10000)
-      }
-    );
-
-    if (!paymentResponse.ok) {
-      const details = await paymentResponse.text();
-
-      console.error(
-        'Supabase payment lookup failed:',
-        paymentResponse.status,
-        details
-      );
-
-      throw new Error(
-        `Supabase payment lookup failed: HTTP ${paymentResponse.status} ${details}`
-      );
+    if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+      return res.status(500).json({
+        error:
+          'Supabase не настроен. Добавь SUPABASE_URL и SUPABASE_SERVICE_ROLE_KEY в Render.'
+      });
     }
 
-    const paymentRows = await paymentResponse.json();
-    const payment = paymentRows?.[0];
+    // The payment must belong to an existing Lamba user.
+    const profile = await findProfileByEmail(email);
 
-    console.log('Payment found:', !!payment);
-
-    if (!payment) {
-      console.error(
-        'PAYMENT NOT FOUND:',
-        body.orderReference
-      );
-
+    if (!profile?.id || !isUuid(profile.id)) {
       return res.status(404).json({
-        error: 'Платёж не найден в payment_orders.'
+        error:
+          'Пользователь с этим email не найден в Supabase.'
       });
     }
 
-    console.log('Payment status before:', payment.status);
-    console.log('Payment credited before:', payment.credited);
-
-    // Only successful payments receive credits
-    if (body.transactionStatus === 'Approved') {
-
-      // If already credited, do not add credits again
-      if (payment.credited === true) {
-        console.log('Payment already credited. No duplicate credit.');
-
-      } else {
-
-        console.log(
-          'APPROVED PAYMENT. Adding',
-          PAYMENT_CREDITS,
-          'credits to user:',
-          payment.user_id
-        );
-
-        const creditResponse = await fetch(
-          `${SUPABASE_URL}/rest/v1/rpc/credit_payment`,
+    const transaction = await paddleRequest('/transactions', {
+      method: 'POST',
+      body: JSON.stringify({
+        items: [
           {
-            method: 'POST',
-            headers: {
-              apikey: SUPABASE_SERVICE_ROLE_KEY,
-              Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-              p_order_reference: body.orderReference,
-              p_credits: PAYMENT_CREDITS
-            }),
-            signal: AbortSignal.timeout(10000)
+            price_id: PADDLE_PRICE_ID,
+            quantity: 1
           }
-        );
-
-        const creditText = await creditResponse.text();
-
-        console.log(
-          'credit_payment response:',
-          creditResponse.status,
-          creditText
-        );
-
-        if (!creditResponse.ok) {
-          throw new Error(
-            `credit_payment failed: HTTP ${creditResponse.status} ${creditText}`
-          );
+        ],
+        collection_mode: 'automatic',
+        custom_data: {
+          email,
+          user_id: profile.id,
+          package: 'Lamba Image Studio - 10 generations',
+          credits: PAYMENT_CREDITS,
+          amount_usd: PAYMENT_AMOUNT_USD
         }
+      })
+    });
 
-        let creditResult = null;
+    const data = transaction?.data;
 
-        try {
-          creditResult = creditText
-            ? JSON.parse(creditText)
-            : null;
-        } catch {
-          creditResult = null;
-        }
-
-        const credited = !!creditResult?.[0]?.credited;
-        const newBalance =
-          creditResult?.[0]?.new_balance ?? null;
-
-        console.log(
-          'CREDIT RESULT:',
-          'credited =',
-          credited,
-          'newBalance =',
-          newBalance
-        );
-
-        // Save final payment status
-        const updatePaymentResponse = await fetch(
-          `${SUPABASE_URL}/rest/v1/payment_orders?order_reference=eq.${encodeURIComponent(body.orderReference)}`,
-          {
-            method: 'PATCH',
-            headers: {
-              apikey: SUPABASE_SERVICE_ROLE_KEY,
-              Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
-              'Content-Type': 'application/json',
-              Prefer: 'return=minimal'
-            },
-            body: JSON.stringify({
-              status: 'Approved',
-              credited: credited,
-              updated_at: new Date().toISOString()
-            }),
-            signal: AbortSignal.timeout(10000)
-          }
-        );
-
-        if (!updatePaymentResponse.ok) {
-          const details = await updatePaymentResponse.text();
-
-          throw new Error(
-            `Supabase payment update failed: HTTP ${updatePaymentResponse.status} ${details}`
-          );
-        }
-
-        console.log(
-          'PAYMENT UPDATED: Approved / credited =',
-          credited
-        );
-      }
-
-    } else {
-
-      console.log(
-        'Payment is not Approved:',
-        body.transactionStatus
+    if (!data?.id || !data?.checkout?.url) {
+      console.error(
+        'Paddle create transaction response:',
+        transaction
       );
 
-      const updatePaymentResponse = await fetch(
-        `${SUPABASE_URL}/rest/v1/payment_orders?order_reference=eq.${encodeURIComponent(body.orderReference)}`,
-        {
-          method: 'PATCH',
-          headers: {
-            apikey: SUPABASE_SERVICE_ROLE_KEY,
-            Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
-            'Content-Type': 'application/json',
-            Prefer: 'return=minimal'
-          },
-          body: JSON.stringify({
-            status: String(
-              body.transactionStatus || 'Declined'
-            ),
-            updated_at: new Date().toISOString()
-          }),
-          signal: AbortSignal.timeout(10000)
-        }
-      );
-
-      if (!updatePaymentResponse.ok) {
-        const details = await updatePaymentResponse.text();
-
-        throw new Error(
-          `Supabase declined payment update failed: HTTP ${updatePaymentResponse.status} ${details}`
-        );
-      }
+      return res.status(502).json({
+        error:
+          'Paddle не вернул ссылку на оплату.',
+        details: transaction
+      });
     }
-
-    // WayForPay acknowledgement
-    const time = Math.floor(Date.now() / 1000);
-    const status = 'accept';
-
-    const signature = wayForPaySignature([
-      body.orderReference || '',
-      status,
-      time
-    ]);
 
     console.log(
-      '=== WAYFORPAY CALLBACK SUCCESS ===',
-      body.orderReference
+      `Paddle checkout created: ${data.id}; ${email}; $${PAYMENT_AMOUNT_USD}; +${PAYMENT_CREDITS}`
     );
 
     return res.json({
-      orderReference: body.orderReference,
-      status,
-      time,
-      signature
+      ok: true,
+      transactionId: data.id,
+      checkoutUrl: data.checkout.url,
+      amount: PAYMENT_AMOUNT_USD,
+      currency: 'USD',
+      credits: PAYMENT_CREDITS
     });
-
   } catch (err) {
+    console.error('Paddle create transaction:', err);
 
-    console.error(
-      '=== WAYFORPAY CALLBACK ERROR ===',
-      err
-    );
+    return res.status(err?.status >= 400 && err?.status < 500
+      ? err.status
+      : 500).json({
+        error:
+          err?.message ||
+          'Ошибка создания платежа Paddle.'
+      });
+  }
+});
+
+// ============================================================
+// Payment status
+// ============================================================
+
+app.get('/api/payment/status/:transactionId', async (req, res) => {
+  try {
+    const transactionId = String(
+      req.params.transactionId || ''
+    ).trim();
+
+    if (!transactionId) {
+      return res.status(400).json({
+        error: 'Не указан transactionId.'
+      });
+    }
+
+    const payment = await findPaymentOrder(transactionId);
+
+    if (!payment) {
+      return res.json({
+        ok: true,
+        transactionId,
+        status: 'pending',
+        paid: false,
+        creditsAdded: 0
+      });
+    }
+
+    const balance = await getCreditsByUserId(payment.user_id);
+
+    return res.json({
+      ok: true,
+      transactionId,
+      status: 'completed',
+      paid: true,
+      creditsAdded: PAYMENT_CREDITS,
+      userCredits: balance?.credits ?? 0,
+      amount: Number(payment.amount || PAYMENT_AMOUNT_USD),
+      currency: payment.currency || 'USD'
+    });
+  } catch (err) {
+    console.error('Payment status error:', err);
 
     return res.status(500).json({
       error:
         err?.message ||
-        'Ошибка обработки уведомления WayForPay.'
+        'Ошибка проверки статуса платежа.'
     });
   }
 });
 
-// Frontend can check the result of a payment by orderReference.
-// Read from Supabase so the result survives a Render restart.
-app.get('/api/payment/status/:orderReference', async (req, res) => {
+// ============================================================
+// Current credit balance
+// ============================================================
+
+app.get('/api/credits', async (req, res) => {
   try {
-    const orderReference = String(req.params.orderReference || '').trim();
+    const email = normalizeEmail(req.query.email);
 
-    if (!orderReference) {
-      return res.status(400).json({ error: 'Не указан orderReference.' });
+    if (!email) {
+      return res.status(400).json({
+        error: 'Нужен email пользователя.'
+      });
     }
 
-    if (!supabaseReady()) {
-      return res.status(500).json({ error: 'Supabase server credentials не настроены.' });
+    const profile = await findProfileByEmail(email);
+
+    if (!profile?.id) {
+      return res.status(404).json({
+        error: 'Пользователь не найден.'
+      });
     }
 
-    const response = await fetch(
-      `${SUPABASE_URL}/rest/v1/payment_orders?order_reference=eq.${encodeURIComponent(orderReference)}&select=order_reference,status,credited,amount,currency,credits`,
-      {
-        headers: {
-          apikey: SUPABASE_SERVICE_ROLE_KEY,
-          Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`
-        }
-      }
-    );
+    const balance = await getCreditsByUserId(profile.id);
 
-    if (!response.ok) {
-      const details = await response.text();
-      throw new Error(`Supabase payment status failed: HTTP ${response.status} ${details}`);
+    if (!balance) {
+      return res.status(404).json({
+        error:
+          'Для пользователя не найдена строка user_credits.'
+      });
     }
 
-    const rows = await response.json();
-    const payment = rows?.[0];
-
-    if (!payment) {
-      return res.status(404).json({ error: 'Платёж не найден.' });
-    }
-
-    res.json({
+    return res.json({
       ok: true,
-      orderReference: payment.order_reference,
-      status: payment.status,
-      paid: payment.status === 'Approved',
-      credited: !!payment.credited,
-      creditsToAdd: payment.credits || 0,
-      amount: payment.amount,
-      currency: payment.currency
+      email,
+      userId: profile.id,
+      credits: balance.credits
     });
   } catch (err) {
-    console.error('Payment status error:', err);
-    res.status(500).json({
-      error: err?.message || 'Ошибка проверки платежа.'
+    console.error('Credits error:', err);
+
+    return res.status(500).json({
+      error:
+        err?.message ||
+        'Ошибка получения баланса кредитов.'
     });
   }
 });
 
-app.post('/api/generate', upload.single('image'), async (req, res) => {
-  let tmp = null;
+// ============================================================
+// Generate image
+//
+// IMPORTANT:
+// The credit is NOT deducted before generation.
+// Replicate must successfully return an image first.
+// Then the server performs one atomic -1 update.
+// ============================================================
 
-  try {
-    // Проверяем Replicate
-    if (!TOKEN) {
-      return res.status(500).json({
-        error: 'REPLICATE_API_TOKEN не настроен на Render.'
-      });
-    }
+app.post(
+  '/api/generate',
+  upload.single('image'),
+  async (req, res) => {
+    try {
+      if (!TOKEN || !replicate) {
+        return res.status(500).json({
+          error:
+            'REPLICATE_API_TOKEN не настроен на Render.'
+        });
+      }
 
-    // Проверяем авторизацию пользователя
-    const user = await getAuthenticatedSupabaseUser(req);
+      if (!req.file) {
+        return res.status(400).json({
+          error: 'Фото не загружено.'
+        });
+      }
 
-    if (!user?.id) {
-      return res.status(401).json({
-        error: 'Сначала войдите в аккаунт Lamba Image Studio.'
-      });
-    }
+      const email = normalizeEmail(req.body?.email);
 
-    // Проверяем фото
-    if (!req.file) {
-      return res.status(400).json({
-        error: 'Фото не загружено.'
-      });
-    }
+      if (!email) {
+        return res.status(400).json({
+          error: 'Нужен email пользователя.'
+        });
+      }
 
-    const prompt = String(req.body?.prompt || '').trim();
+      const profile = await findProfileByEmail(email);
 
-    if (!prompt) {
-      return res.status(400).json({
-        error: 'Напиши, что изменить на фото.'
-      });
-    }
+      if (!profile?.id || !isUuid(profile.id)) {
+        return res.status(404).json({
+          error: 'Пользователь не найден.'
+        });
+      }
 
-    // Проверяем баланс кредитов
-    if (!supabaseReady()) {
-      return res.status(500).json({
-        error: 'Supabase server credentials не настроены.'
-      });
-    }
+      const balance = await getCreditsByUserId(profile.id);
 
-    const headers = {
-      apikey: SUPABASE_SERVICE_ROLE_KEY,
-      Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
-      'Content-Type': 'application/json'
-    };
+      if (!balance || Number(balance.credits || 0) < 1) {
+        return res.status(402).json({
+          error: 'Нет доступных генераций.',
+          credits: 0
+        });
+      }
 
-    const creditsResponse = await fetch(
-      `${SUPABASE_URL}/rest/v1/user_credits?user_id=eq.${encodeURIComponent(user.id)}&select=user_id,credits`,
-      { headers }
-    );
+      const prompt = String(
+        req.body?.prompt || ''
+      ).trim();
 
-    if (!creditsResponse.ok) {
-      const details = await creditsResponse.text();
+      if (!prompt) {
+        return res.status(400).json({
+          error:
+            'Напиши, что изменить на фото.'
+        });
+      }
 
-      throw new Error(
-        `Supabase read credits failed: HTTP ${creditsResponse.status} ${details}`
-      );
-    }
+      // -------------------- Replicate --------------------
 
-    const creditRows = await creditsResponse.json();
-
-    if (!Array.isArray(creditRows) || !creditRows.length) {
-      return res.status(403).json({
-        error: 'Для пользователя не создан баланс кредитов.'
-      });
-    }
-
-    const currentCredits = Number(creditRows[0].credits) || 0;
-
-    if (currentCredits < 1) {
-      return res.status(402).json({
-        error: 'У вас закончились генерации. Купите пакет из 10 генераций.'
-      });
-    }
-
-    // Временный файл
-    const ext =
-      path.extname(req.file.originalname || '').toLowerCase() || '.jpg';
-
-    tmp = path.join(
-      os.tmpdir(),
-      `lamba-${Date.now()}${ext}`
-    );
-
-    await fs.writeFile(tmp, req.file.buffer);
-
-    // Генерация изображения
-    const output = await replicate.run(
-      'black-forest-labs/flux-kontext-pro',
-      {
-        input: {
-          prompt,
-          input_image: req.file.buffer,
-          aspect_ratio: 'match_input_image',
-          output_format: 'jpg',
-          safety_tolerance: 2,
-          prompt_upsampling: false
+      const output = await replicate.run(
+        'black-forest-labs/flux-kontext-pro',
+        {
+          input: {
+            prompt,
+            input_image: req.file.buffer,
+            aspect_ratio: 'match_input_image',
+            output_format: 'jpg',
+            safety_tolerance: 2,
+            prompt_upsampling: false
+          }
         }
-      }
-    );
-
-    if (!output) {
-      throw new Error('Модель не вернула изображение.');
-    }
-
-    const data = Buffer.from(
-      await output.blob().then(b => b.arrayBuffer())
-    );
-
-    // Списываем 1 кредит только после успешной генерации
-    const newCredits = currentCredits - 1;
-
-    const updateCreditsResponse = await fetch(
-      `${SUPABASE_URL}/rest/v1/user_credits?user_id=eq.${encodeURIComponent(user.id)}`,
-      {
-        method: 'PATCH',
-        headers: {
-          ...headers,
-          Prefer: 'return=representation'
-        },
-        body: JSON.stringify({
-          credits: newCredits,
-          updated_at: new Date().toISOString()
-        })
-      }
-    );
-
-    if (!updateCreditsResponse.ok) {
-      const details = await updateCreditsResponse.text();
-
-      throw new Error(
-        `Supabase update credits failed: HTTP ${updateCreditsResponse.status} ${details}`
       );
-    }
 
-    console.log(
-      `Lamba generation: user=${user.id}, credits ${currentCredits} -> ${newCredits}`
-    );
-
-    res.set('Content-Type', 'image/jpeg');
-    res.set('Cache-Control', 'no-store');
-    res.set('X-Credits-Remaining', String(newCredits));
-    res.send(data);
-
-  } catch (err) {
-    console.error('Lamba generation error:', err);
-
-    res.status(500).json({
-      error: err?.message || 'Ошибка генерации.'
-    });
-
-  } finally {
-    if (tmp) {
-      await fs.unlink(tmp).catch(() => {});
-    }
-  }
-});
-
-app.post('/api/video', upload.single('image'), async (req, res) => {
-  try {
-    if (!TOKEN) {
-      return res.status(500).json({ error: 'REPLICATE_API_TOKEN не настроен на Render.' });
-    }
-
-    if (!req.file) {
-      return res.status(400).json({ error: 'Фото не загружено.' });
-    }
-
-    const prompt = String(req.body?.prompt || 'Камера плавно приближается, человек слегка двигается естественно.').trim();
-
-    const output = await replicate.run('wan-video/wan-2.2-i2v-fast', {
-      input: {
-        image: new Blob([req.file.buffer], { type: req.file.mimetype }),
-        prompt,
-        go_fast: true,
-        num_frames: 81,
-        resolution: '480p',
-        sample_shift: 12,
-        frames_per_second: 16,
-        interpolate_output: false
+      if (!output) {
+        throw new Error(
+          'Модель не вернула изображение.'
+        );
       }
-    });
 
-    if (!output) {
-      throw new Error('Модель не вернула видео.');
+      let data;
+
+      // Replicate FileOutput normally exposes blob().
+      if (typeof output.blob === 'function') {
+        const blob = await output.blob();
+        data = Buffer.from(
+          await blob.arrayBuffer()
+        );
+      } else if (typeof output === 'string') {
+        const imageResponse = await fetch(output);
+
+        if (!imageResponse.ok) {
+          throw new Error(
+            'Не удалось получить изображение от Replicate.'
+          );
+        }
+
+        data = Buffer.from(
+          await imageResponse.arrayBuffer()
+        );
+      } else if (
+        typeof output.arrayBuffer === 'function'
+      ) {
+        data = Buffer.from(
+          await output.arrayBuffer()
+        );
+      } else {
+        throw new Error(
+          'Неизвестный формат ответа Replicate.'
+        );
+      }
+
+      if (!data?.length) {
+        throw new Error(
+          'Получено пустое изображение.'
+        );
+      }
+
+      // -------------------- Spend exactly 1 credit --------------------
+      //
+      // The deduction happens ONLY here, after successful generation.
+      // CAS prevents two simultaneous generations from spending the
+      // same credit.
+
+      const spent = await spendCreditAtomic(
+        profile.id
+      );
+
+      if (!spent.success) {
+        if (spent.conflict) {
+          return res.status(409).json({
+            error:
+              'Баланс изменился во время генерации. Изображение не выдано, кредит не списан.',
+            credits:
+              (await getCreditsByUserId(profile.id))
+                ?.credits ?? 0
+          });
+        }
+
+        return res.status(402).json({
+          error:
+            'Недостаточно кредитов для выдачи результата.',
+          credits: spent.credits ?? 0
+        });
+      }
+
+      console.log(
+        `Generation successful: ${email}; -1 credit; remaining=${spent.credits}`
+      );
+
+      res.set('Content-Type', 'image/jpeg');
+      res.set('Cache-Control', 'no-store');
+      res.set(
+        'X-Lamba-Credits-Remaining',
+        String(spent.credits)
+      );
+
+      return res.send(data);
+    } catch (err) {
+      console.error('Generation error:', err);
+
+      return res.status(500).json({
+        error:
+          err?.message ||
+          'Ошибка генерации.'
+      });
     }
-
-    const data = Buffer.from(await output.arrayBuffer());
-
-    res.set('Content-Type', 'video/mp4');
-    res.set('Cache-Control', 'no-store');
-    res.send(data);
-
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({
-      error: err?.message || 'Ошибка генерации видео.'
-    });
   }
+);
+
+// ============================================================
+// Existing video endpoint
+// Kept for compatibility with the current frontend.
+// It does NOT consume image credits.
+// ============================================================
+
+app.post(
+  '/api/video',
+  upload.single('image'),
+  async (req, res) => {
+    try {
+      if (!TOKEN || !replicate) {
+        return res.status(500).json({
+          error:
+            'REPLICATE_API_TOKEN не настроен на Render.'
+        });
+      }
+
+      if (!req.file) {
+        return res.status(400).json({
+          error: 'Фото не загружено.'
+        });
+      }
+
+      const prompt = String(
+        req.body?.prompt ||
+          'Камера плавно приближается, человек слегка двигается естественно.'
+      ).trim();
+
+      const output = await replicate.run(
+        'wan-video/wan-2.2-i2v-fast',
+        {
+          input: {
+            image: new Blob(
+              [req.file.buffer],
+              { type: req.file.mimetype }
+            ),
+            prompt,
+            go_fast: true,
+            num_frames: 81,
+            resolution: '480p',
+            sample_shift: 12,
+            frames_per_second: 16,
+            interpolate_output: false
+          }
+        }
+      );
+
+      if (!output) {
+        throw new Error(
+          'Модель не вернула видео.'
+        );
+      }
+
+      let data;
+
+      if (typeof output.arrayBuffer === 'function') {
+        data = Buffer.from(
+          await output.arrayBuffer()
+        );
+      } else if (typeof output.blob === 'function') {
+        const blob = await output.blob();
+        data = Buffer.from(
+          await blob.arrayBuffer()
+        );
+      } else if (typeof output === 'string') {
+        const videoResponse = await fetch(output);
+
+        if (!videoResponse.ok) {
+          throw new Error(
+            'Не удалось получить видео от Replicate.'
+          );
+        }
+
+        data = Buffer.from(
+          await videoResponse.arrayBuffer()
+        );
+      } else {
+        throw new Error(
+          'Неизвестный формат ответа Replicate для видео.'
+        );
+      }
+
+      res.set('Content-Type', 'video/mp4');
+      res.set('Cache-Control', 'no-store');
+
+      return res.send(data);
+    } catch (err) {
+      console.error('Video generation error:', err);
+
+      return res.status(500).json({
+        error:
+          err?.message ||
+          'Ошибка генерации видео.'
+      });
+    }
+  }
+);
+
+// ============================================================
+// Start
+// ============================================================
+
+app.listen(PORT, () => {
+  console.log(
+    `Lamba Remote Image Editor listening on port ${PORT}; ` +
+    `Paddle=${PADDLE_ENV}; ` +
+    `Supabase=${SUPABASE_URL ? 'configured' : 'missing'}`
+  );
 });
-app.listen(PORT, "0.0.0.0", () => console.log(`Lamba Remote Image Editor listening on 0.0.0.0:${PORT}`));
-
-
-
-  
-  
-
-  
-    
-    
-      
-      
-      
-    
-
-
-  
-    
-    
-      
-
-
-      
-
-  
-
-  
-  
-
-
-
-
-
-
-    
-  
-
