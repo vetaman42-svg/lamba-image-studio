@@ -476,16 +476,21 @@ gen.onclick=async()=>{
     fd.append('image',file.files[0]);
     fd.append('style',selectedStyle);
     fd.append('prompt',prompt.value);
-    // Передаём email текущего вошедшего пользователя.
-    // Сервер /api/generate использует его для поиска профиля и кредитов.
-    const userEmail=String(session.user?.email||'').trim().toLowerCase();
+    // Передаём email пользователя в /api/generate.
+    // Сначала берём email из активной Supabase-сессии.
+    // Если Supabase не вернул email, используем email из поля авторизации.
+    const sessionEmail=String(session?.user?.email||'').trim().toLowerCase();
+    const inputEmail=String(document.getElementById('authEmail')?.value||'').trim().toLowerCase();
+    const userEmail=sessionEmail||inputEmail;
+
     if(!userEmail){
       throw new Error(
         currentLang==='ru'
-          ? 'Не удалось получить email пользователя из сессии.'
-          : 'Could not get the user email from the session.'
+          ? 'Нужен email пользователя.'
+          : 'User email is required.'
       );
     }
+
     fd.append('email',userEmail);
 
     const r=await fetch(API_BASE.replace(/\/$/,'')+'/api/generate',{
