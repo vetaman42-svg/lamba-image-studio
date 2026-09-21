@@ -752,31 +752,9 @@ app.get('/api/health', (_req, res) => {
 
 app.post('/api/payment/create', async (req, res) => {
   try {
-    // Accept the email under all names currently used by Lamba.
-    // Payment requests can arrive as JSON, query parameters, or headers.
-    // This keeps the Paddle endpoint compatible with the frontend without
-    // changing Supabase credits or the Paddle payment logic.
-    const email = normalizeEmail(
-      req.body?.email ||
-      req.body?.userEmail ||
-      req.body?.user_email ||
-      req.body?.accountEmail ||
-      req.body?.user?.email ||
-      req.query?.email ||
-      req.get('X-Lamba-User-Email') ||
-      req.get('X-User-Email')
-    );
+    const email = normalizeEmail(req.body?.email);
 
     if (!email) {
-      console.error(
-        'Paddle create: email missing. Received fields:',
-        Object.keys(req.body || {}),
-        'queryEmail=', Boolean(req.query?.email),
-        'headerEmail=', Boolean(
-          req.get('X-Lamba-User-Email') || req.get('X-User-Email')
-        )
-      );
-
       return res.status(400).json({
         error: 'Нужен email пользователя.'
       });
@@ -997,17 +975,34 @@ app.post(
       // as a form field together with the image.
       // Email can arrive either as a multipart form field or in a header.
       // Accept all names currently used by the Lamba frontend.
-      const email = normalizeEmail(
+      // The frontend may send the email under different names.
+      // Accept form fields, headers, and a JSON-encoded user object if present.
+      // This is only for identifying the user; Supabase credits are unchanged.
+      let email = normalizeEmail(
         req.body?.email ||
         req.body?.userEmail ||
         req.body?.user_email ||
         req.body?.accountEmail ||
+        req.body?.user?.email ||
         req.get('X-Lamba-User-Email') ||
         req.get('X-User-Email')
       );
 
+      // Some multipart clients can send the user object as a string.
+      if (!email && typeof req.body?.user === 'string') {
+        try {
+          const userData = JSON.parse(req.body.user);
+          email = normalizeEmail(userData?.email);
+        } catch {
+          // Ignore invalid JSON and continue to the normal missing-email check.
+        }
+      }
+
       if (!email) {
-        console.error('Generation: email missing. Received fields:', Object.keys(req.body || {}));
+        console.error(
+          'Generation: email missing. Received fields:',
+          Object.keys(req.body || {})
+        );
         return res.status(400).json({
           error: 'Нужен email пользователя.'
         });
@@ -1268,4 +1263,7 @@ app.listen(PORT, () => {
 
 
   
+
+
+ 
 
