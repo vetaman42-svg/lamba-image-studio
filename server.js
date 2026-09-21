@@ -973,11 +973,15 @@ app.post(
       // Accept the logged-in user's email from the frontend.
       // The image upload uses multipart/form-data, so email must be sent
       // as a form field together with the image.
+      // Email can arrive either as a multipart form field or in a header.
+      // Accept all names currently used by the Lamba frontend.
       const email = normalizeEmail(
         req.body?.email ||
         req.body?.userEmail ||
         req.body?.user_email ||
-        req.body?.accountEmail
+        req.body?.accountEmail ||
+        req.get('X-Lamba-User-Email') ||
+        req.get('X-User-Email')
       );
 
       if (!email) {
@@ -1240,3 +1244,5 @@ app.listen(PORT, () => {
 
 
 
+
+  
