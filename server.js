@@ -189,8 +189,13 @@ async function findProfileByEmail(email) {
   const normalized = normalizeEmail(email);
   if (!normalized) return null;
 
+  // Resolve the Auth user directly by email instead of downloading only
+  // the first 1000 users and searching that page locally.
+  const query =
+    `/auth/v1/admin/users?email=${encodeURIComponent(normalized)}`;
+
   const response = await fetch(
-    `${SUPABASE_URL}/auth/v1/admin/users?per_page=1000&page=1`,
+    `${SUPABASE_URL}${query}`,
     {
       method: 'GET',
       headers: {
@@ -215,6 +220,7 @@ async function findProfileByEmail(email) {
     throw new Error(
       data?.msg ||
       data?.message ||
+      data?.error_description ||
       `Supabase Auth HTTP ${response.status}`
     );
   }
@@ -223,7 +229,9 @@ async function findProfileByEmail(email) {
     ? data
     : Array.isArray(data?.users)
       ? data.users
-      : [];
+      : data?.id
+        ? [data]
+        : [];
 
   const user = users.find(
     item => normalizeEmail(item?.email) === normalized
@@ -975,44 +983,45 @@ app.post(
       // as a form field together with the image.
       // Email can arrive either as a multipart form field or in a header.
       // Accept all names currently used by the Lamba frontend.
-      // The frontend may send the email under different names.
-      // Accept form fields, headers, and a JSON-encoded user object if present.
-      // This is only for identifying the user; Supabase credits are unchanged.
-      let email = normalizeEmail(
+      // Prefer the authenticated Supabase user id when the frontend sends it.
+      // Email remains a compatibility fallback for the current Lamba frontend.
+      const clientUserId = String(
+        req.body?.userId ||
+        req.body?.user_id ||
+        req.body?.accountId ||
+        req.get('X-Supabase-User-Id') ||
+        ''
+      ).trim();
+
+      const email = normalizeEmail(
         req.body?.email ||
         req.body?.userEmail ||
         req.body?.user_email ||
         req.body?.accountEmail ||
-        req.body?.user?.email ||
         req.get('X-Lamba-User-Email') ||
         req.get('X-User-Email')
       );
 
-      // Some multipart clients can send the user object as a string.
-      if (!email && typeof req.body?.user === 'string') {
-        try {
-          const userData = JSON.parse(req.body.user);
-          email = normalizeEmail(userData?.email);
-        } catch {
-          // Ignore invalid JSON and continue to the normal missing-email check.
-        }
-      }
+      let profile = null;
 
-      if (!email) {
-        console.error(
-          'Generation: email missing. Received fields:',
-          Object.keys(req.body || {})
-        );
-        return res.status(400).json({
-          error: 'Нужен email пользователя.'
-        });
+      if (isUuid(clientUserId)) {
+        profile = { id: clientUserId, email };
+      } else if (email) {
+        profile = await findProfileByEmail(email);
       }
-
-      const profile = await findProfileByEmail(email);
 
       if (!profile?.id || !isUuid(profile.id)) {
-        return res.status(404).json({
-          error: 'Пользователь не найден.'
+        console.error(
+          'Generation: user identity missing.',
+          {
+            hasEmail: !!email,
+            hasUserId: !!clientUserId,
+            receivedFields: Object.keys(req.body || {})
+          }
+        );
+
+        return res.status(400).json({
+          error: 'Не удалось определить пользователя.'
         });
       }
 
@@ -1263,7 +1272,4 @@ app.listen(PORT, () => {
 
 
   
-
-
- 
 
