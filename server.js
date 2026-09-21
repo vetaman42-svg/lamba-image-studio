@@ -970,9 +970,18 @@ app.post(
         });
       }
 
-      const email = normalizeEmail(req.body?.email);
+      // Accept the logged-in user's email from the frontend.
+      // The image upload uses multipart/form-data, so email must be sent
+      // as a form field together with the image.
+      const email = normalizeEmail(
+        req.body?.email ||
+        req.body?.userEmail ||
+        req.body?.user_email ||
+        req.body?.accountEmail
+      );
 
       if (!email) {
+        console.error('Generation: email missing. Received fields:', Object.keys(req.body || {}));
         return res.status(400).json({
           error: 'Нужен email пользователя.'
         });
@@ -1228,5 +1237,6 @@ app.listen(PORT, () => {
     `Supabase=${SUPABASE_URL ? 'configured' : 'missing'}`
   );
 });
+
 
 
