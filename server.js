@@ -7,6 +7,29 @@ const app = express();
 const upload = multer({ limits: { fileSize: 20 * 1024 * 1024 } });
 const PORT = process.env.PORT || 3000;
 
+
+// ============================================================
+// Render request diagnostics
+// Logs every incoming request and its final HTTP status.
+// This does NOT change authentication, credits, Paddle, Supabase,
+// or generation logic. It only makes Render Logs more informative.
+// ============================================================
+app.use((req, res, next) => {
+  const startedAt = Date.now();
+
+  console.log(
+    `[HTTP] ${req.method} ${req.originalUrl} | content-type=${req.get('content-type') || '-'}`
+  );
+
+  res.on('finish', () => {
+    console.log(
+      `[HTTP] ${req.method} ${req.originalUrl} -> ${res.statusCode} | ${Date.now() - startedAt}ms`
+    );
+  });
+
+  next();
+});
+
 // ============================================================
 // LAMBA IMAGE STUDIO
 // Paddle + Supabase + Render
