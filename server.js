@@ -7,29 +7,6 @@ const app = express();
 const upload = multer({ limits: { fileSize: 20 * 1024 * 1024 } });
 const PORT = process.env.PORT || 3000;
 
-
-// ============================================================
-// Render request diagnostics
-// Logs every incoming request and its final HTTP status.
-// This does NOT change authentication, credits, Paddle, Supabase,
-// or generation logic. It only makes Render Logs more informative.
-// ============================================================
-app.use((req, res, next) => {
-  const startedAt = Date.now();
-
-  console.log(
-    `[HTTP] ${req.method} ${req.originalUrl} | content-type=${req.get('content-type') || '-'}`
-  );
-
-  res.on('finish', () => {
-    console.log(
-      `[HTTP] ${req.method} ${req.originalUrl} -> ${res.statusCode} | ${Date.now() - startedAt}ms`
-    );
-  });
-
-  next();
-});
-
 // ============================================================
 // LAMBA IMAGE STUDIO
 // Paddle + Supabase + Render
@@ -775,9 +752,31 @@ app.get('/api/health', (_req, res) => {
 
 app.post('/api/payment/create', async (req, res) => {
   try {
-    const email = normalizeEmail(req.body?.email);
+    // Accept the email under all names currently used by Lamba.
+    // Payment requests can arrive as JSON, query parameters, or headers.
+    // This keeps the Paddle endpoint compatible with the frontend without
+    // changing Supabase credits or the Paddle payment logic.
+    const email = normalizeEmail(
+      req.body?.email ||
+      req.body?.userEmail ||
+      req.body?.user_email ||
+      req.body?.accountEmail ||
+      req.body?.user?.email ||
+      req.query?.email ||
+      req.get('X-Lamba-User-Email') ||
+      req.get('X-User-Email')
+    );
 
     if (!email) {
+      console.error(
+        'Paddle create: email missing. Received fields:',
+        Object.keys(req.body || {}),
+        'queryEmail=', Boolean(req.query?.email),
+        'headerEmail=', Boolean(
+          req.get('X-Lamba-User-Email') || req.get('X-User-Email')
+        )
+      );
+
       return res.status(400).json({
         error: 'Нужен email пользователя.'
       });
@@ -1269,3 +1268,4 @@ app.listen(PORT, () => {
 
 
   
+
