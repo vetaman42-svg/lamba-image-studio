@@ -72,6 +72,49 @@ function normalizeEmail(value) {
   return String(value || '').trim().toLowerCase();
 }
 
+// Resolve the currently logged-in Supabase user from the access token.
+// This is the primary identity source for payment creation: the frontend
+// does not have to guess/pass an email field when a Supabase session exists.
+function getBearerToken(req) {
+  const header = String(req.get('Authorization') || '').trim();
+  if (!header.toLowerCase().startsWith('bearer ')) return '';
+  return header.slice(7).trim();
+}
+
+async function getAuthenticatedSupabaseUser(req) {
+  const accessToken = getBearerToken(req);
+  if (!accessToken || !SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+    return null;
+  }
+
+  const response = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
+    method: 'GET',
+    headers: {
+      apikey: SUPABASE_SERVICE_ROLE_KEY,
+      Authorization: `Bearer ${accessToken}`
+    }
+  });
+
+  const text = await response.text();
+  let data = null;
+  if (text) {
+    try {
+      data = JSON.parse(text);
+    } catch {
+      data = null;
+    }
+  }
+
+  if (!response.ok || !data?.id || !isUuid(data.id)) {
+    return null;
+  }
+
+  return {
+    id: data.id,
+    email: normalizeEmail(data.email)
+  };
+}
+
 function isUuid(value) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
     String(value || '')
@@ -760,11 +803,42 @@ app.get('/api/health', (_req, res) => {
 
 app.post('/api/payment/create', async (req, res) => {
   try {
-    const email = normalizeEmail(req.body?.email);
+    // PRIMARY: identify the logged-in Supabase user from the session token.
+    // FALLBACK: keep compatibility with the existing frontend that sends email.
+    const authUser = await getAuthenticatedSupabaseUser(req);
+    const requestedEmail = normalizeEmail(
+      req.body?.email ||
+      req.body?.userEmail ||
+      req.body?.user_email ||
+      req.body?.accountEmail ||
+      req.get('X-Lamba-User-Email') ||
+      req.get('X-User-Email')
+    );
+    const requestedUserId = String(
+      req.body?.userId ||
+      req.body?.user_id ||
+      req.body?.accountId ||
+      req.get('X-Supabase-User-Id') ||
+      ''
+    ).trim();
 
-    if (!email) {
-      return res.status(400).json({
-        error: 'Нужен email пользователя.'
+    let email = authUser?.email || requestedEmail;
+    let userId = authUser?.id || '';
+
+    // Never allow a logged-in session to create a payment for another email/user.
+    if (authUser && requestedEmail && requestedEmail !== authUser.email) {
+      return res.status(403).json({
+        error: 'Email платежа не совпадает с текущим аккаунтом.'
+      });
+    }
+
+    if (!userId && isUuid(requestedUserId)) {
+      userId = requestedUserId;
+    }
+
+    if (!email && !userId) {
+      return res.status(401).json({
+        error: 'Пользователь не авторизован. Передай Supabase session в Authorization: Bearer <access_token>.'
       });
     }
 
@@ -782,8 +856,18 @@ app.post('/api/payment/create', async (req, res) => {
       });
     }
 
-    // The payment must belong to an existing Lamba user.
-    const profile = await findProfileByEmail(email);
+    // The payment must belong to the authenticated Lamba user.
+    // If an authenticated Supabase session was supplied, its user id is already
+    // trusted and we do not perform a second email lookup.
+    let profile = authUser ? authUser : null;
+
+    if (!profile && email) {
+      profile = await findProfileByEmail(email);
+    }
+
+    if (!profile?.id && userId) {
+      profile = { id: userId, email };
+    }
 
     if (!profile?.id || !isUuid(profile.id)) {
       return res.status(404).json({
@@ -791,6 +875,8 @@ app.post('/api/payment/create', async (req, res) => {
           'Пользователь с этим email не найден в Supabase.'
       });
     }
+
+    email = normalizeEmail(profile.email || email);
 
     const transaction = await paddleRequest('/transactions', {
       method: 'POST',
@@ -828,7 +914,7 @@ app.post('/api/payment/create', async (req, res) => {
     }
 
     console.log(
-      `Paddle checkout created: ${data.id}; ${email}; $${PAYMENT_AMOUNT_USD}; +${PAYMENT_CREDITS}`
+      `Paddle checkout created: ${data.id}; ${email || 'no-email'}; user=${profile.id}; auth=${authUser ? 'supabase-session' : 'fallback'}; $${PAYMENT_AMOUNT_USD}; +${PAYMENT_CREDITS}`
     );
 
     return res.json({
