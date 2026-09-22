@@ -471,31 +471,94 @@ async function paddleRequest(endpoint, options = {}) {
     throw new Error('PADDLE_API_KEY не настроен на Render.');
   }
 
-  const response = await fetch(`${PADDLE_API_BASE}${endpoint}`, {
-    ...options,
-    headers: {
-      Authorization: `Bearer ${PADDLE_API_KEY}`,
-      'Content-Type': 'application/json',
-      ...(options.headers || {})
+  const MAX_RETRIES = 2;
+
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    const response = await fetch(`${PADDLE_API_BASE}${endpoint}`, {
+      ...options,
+      headers: {
+        Authorization: `Bearer ${PADDLE_API_KEY}`,
+        'Content-Type': 'application/json',
+        ...(options.headers || {})
+      }
+    });
+
+    const rawText = await response.text();
+
+    let data = {};
+    try {
+      data = rawText ? JSON.parse(rawText) : {};
+    } catch {
+      data = { raw: rawText };
     }
-  });
 
-  const data = await response.json().catch(() => ({}));
+    // Paddle rate limit: HTTP 429
+    if (response.status === 429) {
+      const retryAfterHeader = response.headers.get('Retry-After');
+      const retryAfter = Number(retryAfterHeader);
 
-  if (!response.ok) {
-    const message =
-      data?.error?.detail ||
-      data?.error?.code ||
-      data?.detail ||
-      'Ошибка Paddle API.';
+      console.error('Paddle API rate limit:', {
+        endpoint,
+        status: response.status,
+        retryAfter: retryAfterHeader,
+        response: data
+      });
 
-    const error = new Error(message);
-    error.status = response.status;
-    error.details = data;
-    throw error;
+      if (
+        attempt < MAX_RETRIES &&
+        Number.isFinite(retryAfter) &&
+        retryAfter >= 0
+      ) {
+        await sleep(Math.min(retryAfter * 1000, 65000));
+        continue;
+      }
+
+      const message =
+        data?.error?.detail ||
+        data?.error?.message ||
+        data?.error?.code ||
+        data?.detail ||
+        data?.message ||
+        `Paddle временно ограничил запросы. Повтори через ${
+          Number.isFinite(retryAfter) ? retryAfter : 60
+        } секунд.`;
+
+      const error = new Error(String(message));
+      error.status = 429;
+      error.retryAfter = Number.isFinite(retryAfter)
+        ? retryAfter
+        : 60;
+      error.details = data;
+
+      throw error;
+    }
+
+    if (!response.ok) {
+      console.error('Paddle API error:', {
+        endpoint,
+        status: response.status,
+        response: data
+      });
+
+      const message =
+        data?.error?.detail ||
+        data?.error?.message ||
+        data?.error?.code ||
+        data?.detail ||
+        data?.message ||
+        `Ошибка Paddle API. HTTP ${response.status}`;
+
+      const error = new Error(String(message));
+      error.status = response.status;
+      error.details = data;
+
+      throw error;
+    }
+
+    return data;
   }
 
-  return data;
+  throw new Error('Paddle API: превышено количество повторных попыток.');
 }
 
 // ============================================================
@@ -928,13 +991,24 @@ app.post('/api/payment/create', async (req, res) => {
   } catch (err) {
     console.error('Paddle create transaction:', err);
 
-    return res.status(err?.status >= 400 && err?.status < 500
-      ? err.status
-      : 500).json({
+    if (err?.status === 429) {
+      return res.status(429).json({
         error:
           err?.message ||
-          'Ошибка создания платежа Paddle.'
+          'Paddle временно ограничил запросы. Повтори позже.',
+        retryAfter: Number(err?.retryAfter || 60)
       });
+    }
+
+    return res.status(
+      err?.status >= 400 && err?.status < 500
+        ? err.status
+        : 500
+    ).json({
+      error:
+        err?.message ||
+        'Ошибка создания платежа Paddle.'
+    });
   }
 });
 
