@@ -610,10 +610,10 @@ function verifyPaddleWebhook(rawBody, signatureHeader) {
     return false;
   }
 
-  // Paddle's SDK uses a short timestamp tolerance.
+  // Allow reasonable delivery/network delay while still rejecting stale webhooks.
   const age = Math.abs(Math.floor(Date.now() / 1000) - timestamp);
 
-  if (age > 5) {
+  if (age > 300) {
     return false;
   }
 
@@ -778,21 +778,32 @@ app.post(
         // protection across normal webhook retries/restarts.
         // --------------------------------------------------------
 
-        const creditResult = await addCreditsAtomic(
-          userId,
-          PAYMENT_CREDITS
-        );
-
+        // Record the transaction FIRST. This makes the durable payment
+        // ledger the idempotency gate before any credits are added.
         const insertedOrder = await createPaymentOrder(
           transactionId,
           userId
         );
 
-        // If another worker inserted the order between the check and
-        // our insert, do not silently continue with another credit.
-        // This situation is extremely unlikely with the Render lock,
-        // but we protect the database ledger here as well.
+        // If the transaction already exists, never add credits again.
         if (!insertedOrder) {
+          const existing = await findPaymentOrder(transactionId);
+
+          if (existing) {
+            const balance = await getCreditsByUserId(existing.user_id);
+
+            console.log(
+              `Paddle duplicate ignored after ledger check: ${transactionId}`
+            );
+
+            return res.json({
+              ok: true,
+              duplicate: true,
+              transactionId,
+              credits: balance?.credits ?? null
+            });
+          }
+
           console.error(
             `Paddle payment ledger conflict for ${transactionId}.`
           );
@@ -802,6 +813,11 @@ app.post(
               'Платёж уже обрабатывается другим процессом. Paddle повторит webhook.'
           });
         }
+
+        const creditResult = await addCreditsAtomic(
+          userId,
+          PAYMENT_CREDITS
+        );
 
         console.log(
           `Paddle payment completed: ${transactionId}; ` +
