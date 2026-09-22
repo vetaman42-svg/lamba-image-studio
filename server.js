@@ -2,7 +2,8 @@ import express from 'express';
 import multer from 'multer';
 import Replicate from 'replicate';
 import crypto from 'crypto';
-
+import path from 'path';
+import { fileURLToPath } from 'url';
 const app = express();
 const upload = multer({ limits: { fileSize: 20 * 1024 * 1024 } });
 const PORT = process.env.PORT || 3000;
@@ -850,7 +851,24 @@ app.post(
 
 app.use(express.json({ limit: '2mb' }));
 app.use(express.static('.'));
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
+app.get('/pricing', (_req, res) => {
+  res.sendFile(path.join(__dirname, 'pricing.html'));
+});
+
+app.get('/terms', (_req, res) => {
+  res.sendFile(path.join(__dirname, 'terms.html'));
+});
+
+app.get('/privacy', (_req, res) => {
+  res.sendFile(path.join(__dirname, 'privacy.html'));
+});
+
+app.get('/refunds', (_req, res) => {
+  res.sendFile(path.join(__dirname, 'refunds.html'));
+});
 // ============================================================
 // Health
 // ============================================================
