@@ -7,6 +7,8 @@ import { fileURLToPath } from 'url';
 const app = express();
 const upload = multer({ limits: { fileSize: 20 * 1024 * 1024 } });
 const PORT = process.env.PORT || 3000;
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // ============================================================
 // LAMBA IMAGE STUDIO
@@ -850,9 +852,7 @@ app.post(
 // ============================================================
 
 app.use(express.json({ limit: '2mb' }));
-app.use(express.static('.'));
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+app.use(express.static(__dirname));
 
 app.get('/pricing', (_req, res) => {
   res.sendFile(path.join(__dirname, 'pricing.html'));
