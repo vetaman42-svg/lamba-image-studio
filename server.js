@@ -1244,24 +1244,36 @@ app.post(
       // The input photo is the source of truth.
       // For pose edits, modify the pose while keeping the same person.
       // ========================================================
+      // Keep the prompt deliberately structured: first the user's requested edit,
+      // then the non-negotiable preservation rules. This prevents the identity and
+      // framing rules from drowning out a concrete pose/action instruction.
       const prompt = [
-        'EDIT THE UPLOADED PHOTO. Do not create a different person or reinterpret the subject.',
-        'The uploaded image is the authoritative source for the person identity and appearance.',
-        'Preserve the same face and identity: facial structure, eyes, nose, mouth, jaw, skin appearance, hairstyle, and hair color.',
-        'Preserve the same body identity: body shape, natural proportions, torso, shoulders, waist, hips, arms, hands, legs, and overall physique.',
-        'Preserve the apparent age, height impression, and natural physical characteristics of the person.',
-        'Do not beautify, slim, enlarge, reshape, retouch, age, de-age, masculinize, feminize, or otherwise redesign the person unless that exact change is explicitly requested.',
-        'Do not replace the face. Do not generate a new face. Do not blend the person with another person.',
-        'If the user requests a pose or scene change, the requested pose and scene MUST be visibly performed; do not preserve the original pose when it conflicts with the request.',
-        'Treat pose, position, location, camera angle, and scene elements named by the user as active edit instructions, while keeping the person recognizable and consistent with the input image.',
-        'Сохраняй исходное лицо, внешность, волосы, телосложение, пропорции и возрастной вид человека. Если я не прошу изменить кадрирование — полностью сохраняй исходную крупность, дистанцию камеры, масштаб человека в кадре, границы кадра, поля по бокам и сверху/снизу. Не приближай и не отдаляй изображение самовольно. Если я явно прошу «крупный план», «по пояс», «по грудь», «по колено», «полный рост», «приблизить», «увеличить кадр», «отдалить» или другую конкретную крупность — тогда меняй кадрирование именно в соответствии с моей командой. При изменении позы меняй только позу внутри исходного кадра и не меняй масштаб без моей команды. Выполняй мою команду точно, а всё, что я не просил менять, максимально сохраняй как на исходной фотографии.',
-        'For a requested sitting pose, the person must actually be seated on the specified chair, stool, bench, floor, or other named surface, with the body physically positioned in a believable sitting posture; never leave the person standing.',
-        'For a requested standing pose, the person must actually be standing; for a requested lying pose, the person must actually be lying in the specified position. Apply the same rule to any other explicit pose or action.',
-        'When changing pose or scene, keep the original face, head appearance, hair, body proportions, physique, and recognizable identity consistent with the input image unless the user explicitly requests a change to them.',
-        "Do not use the requested pose or scene as a reason to change the person's identity, face, or body proportions.",
-        'Do not make unrequested changes to clothing, face, hair, age, or identity. Background, lighting, camera composition, furniture, and other scene elements may change when the user explicitly requests them.',
-        'Follow the USER REQUEST precisely. The requested pose, location, interaction with objects, and scene must be present in the final image; everything not requested should remain as close to the uploaded image as possible.',
-        `USER REQUEST: ${userPrompt}`
+        'EDIT THE UPLOADED PHOTO. The uploaded photo is the source of truth for the same person.',
+        '',
+        '=== USER EDIT — HIGHEST PRIORITY ===',
+        `USER REQUEST: ${userPrompt}`,
+        'Execute every explicit action, pose, placement, interaction, and scene instruction in the USER REQUEST.',
+        'If an explicit action conflicts with the original pose, change the original pose. Never keep the original pose merely because it appears in the input photo.',
+        'The requested final action must be visually and physically true in the result, not merely implied.',
+        'For sitting: the person must actually be seated on the named chair/stool/bench/surface, with the body supported by it and legs positioned according to the request. Never leave the person standing.',
+        'For standing: the person must actually be standing. For lying: the person must actually be lying in the requested position. Apply the same principle to every explicit pose or action.',
+        'If the request specifies an object or location, the person must visibly interact with or occupy that specified object/location.',
+        '',
+        '=== PERSON PRESERVATION — DO NOT CHANGE UNLESS EXPLICITLY REQUESTED ===',
+        'Preserve the same person and identity from the uploaded photo.',
+        'Preserve the face: facial structure, eyes, nose, mouth, jaw, skin appearance, hairstyle, and hair color.',
+        'Preserve the body: body shape, natural proportions, torso, shoulders, waist, hips, arms, hands, legs, and overall physique.',
+        'Preserve the apparent age and natural physical characteristics.',
+        'Do not replace, redesign, beautify, slim, enlarge, reshape, age, de-age, masculinize, feminize, or otherwise alter the person unless that exact change is explicitly requested.',
+        'Do not create or blend in another person. The final person must remain recognizably the same person as in the uploaded photo.',
+        '',
+        '=== FRAMING / CAMERA — ONLY CHANGE IF EXPLICITLY REQUESTED ===',
+        'If the USER REQUEST does not explicitly ask for different framing, preserve approximately the original camera distance, camera angle, subject scale, crop boundaries, and composition. Do not automatically zoom in, zoom out, crop tighter, or turn the image into a close-up.',
+        'If the USER REQUEST explicitly asks for framing such as close-up, waist-up, chest-up, knee-up, full body, zoom in, zoom out, or another specific crop, follow that framing instruction exactly.',
+        'Changing framing must not be used as a reason to change the person, face, body proportions, or identity.',
+        '',
+        '=== FINAL RULE ===',
+        'Make the smallest necessary changes to satisfy the USER REQUEST, but the explicit requested action/pose always takes priority over the original pose. Preserve everything else from the uploaded photo as closely as possible.'
       ].join(' ');
 
       // -------------------- Replicate --------------------
@@ -1491,6 +1503,7 @@ app.listen(PORT, () => {
 
 
   
+
 
 
 
