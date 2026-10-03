@@ -1228,16 +1228,35 @@ app.post(
         });
       }
 
-      const prompt = String(
+      const userPrompt = String(
         req.body?.prompt || ''
       ).trim();
 
-      if (!prompt) {
+      if (!userPrompt) {
         return res.status(400).json({
           error:
             'Напиши, что изменить на фото.'
         });
       }
+
+      // ========================================================
+      // PERSON PRESERVATION
+      // The uploaded image is the primary identity reference.
+      // The user's instruction controls WHAT is changed.
+      // The model must not independently redesign the person.
+      // ========================================================
+      const prompt = [
+        'Use the uploaded image as the primary and authoritative reference for the person.',
+        'Preserve the exact identity and recognizable appearance of the person from the input image.',
+        'Preserve the face, facial features, facial structure, skin appearance, hairstyle, hair color, body shape, body proportions, physique, height impression, limb proportions, and apparent age.',
+        'Do not make the person thinner, heavier, taller, shorter, younger, older, more muscular, or otherwise change their natural body shape or proportions.',
+        "Do not alter the person's face or invent a different face.",
+        'Do not beautify, retouch, reshape, slim, enlarge, or otherwise redesign the person unless the user explicitly asks for that specific change.',
+        'Keep the person recognizable as the same individual throughout the generated image.',
+        'Change only the elements explicitly requested by the user. If the user requests a pose change, change the pose while preserving the same person, face, hair, body shape, proportions, clothing, and overall appearance.',
+        'Do not introduce unrequested changes to clothing, body, face, hair, age, or physical characteristics.',
+        `USER INSTRUCTION: ${userPrompt}`
+      ].join(' ');
 
       // -------------------- Replicate --------------------
 
