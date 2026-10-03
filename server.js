@@ -1271,7 +1271,7 @@ app.post(
         'Do not replace the face. Do not generate a new face. Do not blend the person with another person.',
         'If the requested change is a POSE, treat the original person as locked and change only the body position required to achieve that pose.',
         'When changing pose, keep the original face, head appearance, hair, body proportions, physique, clothing, and recognizable identity consistent with the input image.',
-        'Do not use the requested pose as a reason to change the person's body shape or facial appearance.',
+        "Do not use the requested pose as a reason to change the person's body shape or facial appearance.",
         'Do not make unrequested changes to clothing, body, face, hair, age, lighting, background, or camera composition.',
         'Only perform changes explicitly requested by the user. Everything else should remain as close to the uploaded image as possible.',
         `USER REQUEST: ${userPrompt}`
@@ -1521,3 +1521,4 @@ app.listen(PORT, () => {
 
 
 
+ 
