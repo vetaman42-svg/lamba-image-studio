@@ -1172,23 +1172,6 @@ app.post(
         });
       }
 
-      // FLUX Kontext accepts JPEG/PNG/GIF/WebP reference images.
-      // Reject unsupported uploads before they reach Replicate.
-      const allowedImageTypes = new Set([
-        'image/jpeg',
-        'image/png',
-        'image/gif',
-        'image/webp'
-      ]);
-
-      const uploadedMime = String(req.file.mimetype || '').toLowerCase();
-
-      if (!allowedImageTypes.has(uploadedMime)) {
-        return res.status(415).json({
-          error: 'Неподдерживаемый формат изображения. Используй JPG, PNG, GIF или WebP.'
-        });
-      }
-
       // Accept the logged-in user's email from the frontend.
       // The image upload uses multipart/form-data, so email must be sent
       // as a form field together with the image.
@@ -1269,11 +1252,14 @@ app.post(
         'Preserve the apparent age, height impression, and natural physical characteristics of the person.',
         'Do not beautify, slim, enlarge, reshape, retouch, age, de-age, masculinize, feminize, or otherwise redesign the person unless that exact change is explicitly requested.',
         'Do not replace the face. Do not generate a new face. Do not blend the person with another person.',
-        'If the requested change is a POSE, treat the original person as locked and change only the body position required to achieve that pose.',
-        'When changing pose, keep the original face, head appearance, hair, body proportions, physique, clothing, and recognizable identity consistent with the input image.',
-        "Do not use the requested pose as a reason to change the person's body shape or facial appearance.",
-        'Do not make unrequested changes to clothing, body, face, hair, age, lighting, background, or camera composition.',
-        'Only perform changes explicitly requested by the user. Everything else should remain as close to the uploaded image as possible.',
+        'If the user requests a pose or scene change, the requested pose and scene MUST be visibly performed; do not preserve the original pose when it conflicts with the request.',
+        'Treat pose, position, location, camera angle, and scene elements named by the user as active edit instructions, while keeping the person recognizable and consistent with the input image.',
+        'For a requested sitting pose, the person must actually be seated on the specified chair, stool, bench, floor, or other named surface, with the body physically positioned in a believable sitting posture; never leave the person standing.',
+        'For a requested standing pose, the person must actually be standing; for a requested lying pose, the person must actually be lying in the specified position. Apply the same rule to any other explicit pose or action.',
+        'When changing pose or scene, keep the original face, head appearance, hair, body proportions, physique, and recognizable identity consistent with the input image unless the user explicitly requests a change to them.',
+        "Do not use the requested pose or scene as a reason to change the person's identity, face, or body proportions.",
+        'Do not make unrequested changes to clothing, face, hair, age, or identity. Background, lighting, camera composition, furniture, and other scene elements may change when the user explicitly requests them.',
+        'Follow the USER REQUEST precisely. The requested pose, location, interaction with objects, and scene must be present in the final image; everything not requested should remain as close to the uploaded image as possible.',
         `USER REQUEST: ${userPrompt}`
       ].join(' ');
 
@@ -1284,13 +1270,7 @@ app.post(
         {
           input: {
             prompt,
-            // Pass the uploaded file explicitly as a Blob with its real MIME type.
-            // This avoids ambiguous multipart/buffer handling between Render,
-            // the Replicate SDK and the model input validator.
-            input_image: new Blob(
-              [req.file.buffer],
-              { type: uploadedMime }
-            ),
+            input_image: req.file.buffer,
             aspect_ratio: 'match_input_image',
             output_format: 'jpg',
             safety_tolerance: 2,
@@ -1384,20 +1364,12 @@ app.post(
 
       return res.send(data);
     } catch (err) {
-      console.error('Generation error:', {
-        message: err?.message,
-        status: err?.status,
-        name: err?.name,
-        details: err?.details
-      });
+      console.error('Generation error:', err);
 
-      return res.status(
-        err?.status >= 400 && err?.status < 600 ? err.status : 500
-      ).json({
+      return res.status(500).json({
         error:
           err?.message ||
-          'Ошибка генерации.',
-        details: err?.details || undefined
+          'Ошибка генерации.'
       });
     }
   }
@@ -1521,4 +1493,5 @@ app.listen(PORT, () => {
 
 
 
- 
+
+
