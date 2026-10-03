@@ -1244,36 +1244,13 @@ app.post(
       // The input photo is the source of truth.
       // For pose edits, modify the pose while keeping the same person.
       // ========================================================
-      // Keep the prompt deliberately structured: first the user's requested edit,
-      // then the non-negotiable preservation rules. This prevents the identity and
-      // framing rules from drowning out a concrete pose/action instruction.
       const prompt = [
-        'EDIT THE UPLOADED PHOTO. The uploaded photo is the source of truth for the same person.',
-        '',
-        '=== USER EDIT — HIGHEST PRIORITY ===',
-        `USER REQUEST: ${userPrompt}`,
-        'Execute every explicit action, pose, placement, interaction, and scene instruction in the USER REQUEST.',
-        'If an explicit action conflicts with the original pose, change the original pose. Never keep the original pose merely because it appears in the input photo.',
-        'The requested final action must be visually and physically true in the result, not merely implied.',
-        'For sitting: the person must actually be seated on the named chair/stool/bench/surface, with the body supported by it and legs positioned according to the request. Never leave the person standing.',
-        'For standing: the person must actually be standing. For lying: the person must actually be lying in the requested position. Apply the same principle to every explicit pose or action.',
-        'If the request specifies an object or location, the person must visibly interact with or occupy that specified object/location.',
-        '',
-        '=== PERSON PRESERVATION — DO NOT CHANGE UNLESS EXPLICITLY REQUESTED ===',
-        'Preserve the same person and identity from the uploaded photo.',
-        'Preserve the face: facial structure, eyes, nose, mouth, jaw, skin appearance, hairstyle, and hair color.',
-        'Preserve the body: body shape, natural proportions, torso, shoulders, waist, hips, arms, hands, legs, and overall physique.',
-        'Preserve the apparent age and natural physical characteristics.',
-        'Do not replace, redesign, beautify, slim, enlarge, reshape, age, de-age, masculinize, feminize, or otherwise alter the person unless that exact change is explicitly requested.',
-        'Do not create or blend in another person. The final person must remain recognizably the same person as in the uploaded photo.',
-        '',
-        '=== FRAMING / CAMERA — ONLY CHANGE IF EXPLICITLY REQUESTED ===',
-        'If the USER REQUEST does not explicitly ask for different framing, preserve approximately the original camera distance, camera angle, subject scale, crop boundaries, and composition. Do not automatically zoom in, zoom out, crop tighter, or turn the image into a close-up.',
-        'If the USER REQUEST explicitly asks for framing such as close-up, waist-up, chest-up, knee-up, full body, zoom in, zoom out, or another specific crop, follow that framing instruction exactly.',
-        'Changing framing must not be used as a reason to change the person, face, body proportions, or identity.',
-        '',
-        '=== FINAL RULE ===',
-        'Make the smallest necessary changes to satisfy the USER REQUEST, but the explicit requested action/pose always takes priority over the original pose. Preserve everything else from the uploaded photo as closely as possible.'
+        'Edit the uploaded photo. Keep the same person recognizable.',
+        'Preserve the person’s face, hair, appearance, natural body proportions, clothing, and original framing unless the user explicitly asks to change them.',
+        'Perform the USER REQUEST exactly and visibly. If the requested pose or action conflicts with the original pose, replace the original pose with the requested one.',
+        'For sitting, standing, lying, or any other explicit action, the person must physically perform that action in the final image.',
+        'Do not add unrequested changes.',
+        `USER REQUEST: ${userPrompt}`
       ].join(' ');
 
       // -------------------- Replicate --------------------
@@ -1503,7 +1480,6 @@ app.listen(PORT, () => {
 
 
   
-
 
 
 
