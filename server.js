@@ -1172,6 +1172,23 @@ app.post(
         });
       }
 
+      // FLUX Kontext accepts JPEG/PNG/GIF/WebP reference images.
+      // Reject unsupported uploads before they reach Replicate.
+      const allowedImageTypes = new Set([
+        'image/jpeg',
+        'image/png',
+        'image/gif',
+        'image/webp'
+      ]);
+
+      const uploadedMime = String(req.file.mimetype || '').toLowerCase();
+
+      if (!allowedImageTypes.has(uploadedMime)) {
+        return res.status(415).json({
+          error: 'Неподдерживаемый формат изображения. Используй JPG, PNG, GIF или WebP.'
+        });
+      }
+
       // Accept the logged-in user's email from the frontend.
       // The image upload uses multipart/form-data, so email must be sent
       // as a form field together with the image.
@@ -1267,7 +1284,13 @@ app.post(
         {
           input: {
             prompt,
-            input_image: req.file.buffer,
+            // Pass the uploaded file explicitly as a Blob with its real MIME type.
+            // This avoids ambiguous multipart/buffer handling between Render,
+            // the Replicate SDK and the model input validator.
+            input_image: new Blob(
+              [req.file.buffer],
+              { type: uploadedMime }
+            ),
             aspect_ratio: 'match_input_image',
             output_format: 'jpg',
             safety_tolerance: 2,
@@ -1361,12 +1384,20 @@ app.post(
 
       return res.send(data);
     } catch (err) {
-      console.error('Generation error:', err);
+      console.error('Generation error:', {
+        message: err?.message,
+        status: err?.status,
+        name: err?.name,
+        details: err?.details
+      });
 
-      return res.status(500).json({
+      return res.status(
+        err?.status >= 400 && err?.status < 600 ? err.status : 500
+      ).json({
         error:
           err?.message ||
-          'Ошибка генерации.'
+          'Ошибка генерации.',
+        details: err?.details || undefined
       });
     }
   }
@@ -1487,5 +1518,6 @@ app.listen(PORT, () => {
 
 
   
+
 
 
