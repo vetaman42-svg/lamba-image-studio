@@ -1240,22 +1240,24 @@ app.post(
       }
 
       // ========================================================
-      // PERSON PRESERVATION
-      // The uploaded image is the primary identity reference.
-      // The user's instruction controls WHAT is changed.
-      // The model must not independently redesign the person.
+      // IDENTITY-LOCKED EDITING
+      // The input photo is the source of truth.
+      // For pose edits, modify the pose while keeping the same person.
       // ========================================================
       const prompt = [
-        'Use the uploaded image as the primary and authoritative reference for the person.',
-        'Preserve the exact identity and recognizable appearance of the person from the input image.',
-        'Preserve the face, facial features, facial structure, skin appearance, hairstyle, hair color, body shape, body proportions, physique, height impression, limb proportions, and apparent age.',
-        'Do not make the person thinner, heavier, taller, shorter, younger, older, more muscular, or otherwise change their natural body shape or proportions.',
-        "Do not alter the person's face or invent a different face.",
-        'Do not beautify, retouch, reshape, slim, enlarge, or otherwise redesign the person unless the user explicitly asks for that specific change.',
-        'Keep the person recognizable as the same individual throughout the generated image.',
-        'Change only the elements explicitly requested by the user. If the user requests a pose change, change the pose while preserving the same person, face, hair, body shape, proportions, clothing, and overall appearance.',
-        'Do not introduce unrequested changes to clothing, body, face, hair, age, or physical characteristics.',
-        `USER INSTRUCTION: ${userPrompt}`
+        'EDIT THE UPLOADED PHOTO. Do not create a different person or reinterpret the subject.',
+        'The uploaded image is the authoritative source for the person identity and appearance.',
+        'Preserve the same face and identity: facial structure, eyes, nose, mouth, jaw, skin appearance, hairstyle, and hair color.',
+        'Preserve the same body identity: body shape, natural proportions, torso, shoulders, waist, hips, arms, hands, legs, and overall physique.',
+        'Preserve the apparent age, height impression, and natural physical characteristics of the person.',
+        'Do not beautify, slim, enlarge, reshape, retouch, age, de-age, masculinize, feminize, or otherwise redesign the person unless that exact change is explicitly requested.',
+        'Do not replace the face. Do not generate a new face. Do not blend the person with another person.',
+        'If the requested change is a POSE, treat the original person as locked and change only the body position required to achieve that pose.',
+        'When changing pose, keep the original face, head appearance, hair, body proportions, physique, clothing, and recognizable identity consistent with the input image.',
+        'Do not use the requested pose as a reason to change the person's body shape or facial appearance.',
+        'Do not make unrequested changes to clothing, body, face, hair, age, lighting, background, or camera composition.',
+        'Only perform changes explicitly requested by the user. Everything else should remain as close to the uploaded image as possible.',
+        `USER REQUEST: ${userPrompt}`
       ].join(' ');
 
       // -------------------- Replicate --------------------
@@ -1485,4 +1487,5 @@ app.listen(PORT, () => {
 
 
   
+
 
