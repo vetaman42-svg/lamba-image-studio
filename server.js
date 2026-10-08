@@ -1160,15 +1160,13 @@ app.get('/api/credits', async (req, res) => {
 
 app.post(
   '/api/generate',
-  upload.fields([
-    { name: 'image', maxCount: 1 },
-    { name: 'clothingImage', maxCount: 1 },
-    { name: 'clothing', maxCount: 1 },
-    { name: 'garmentImage', maxCount: 1 },
-    { name: 'image2', maxCount: 1 },
-    { name: 'secondImage', maxCount: 1 },
-    { name: 'referenceImage', maxCount: 1 }
-  ]),
+  // IMPORTANT: the current Lamba HTML may use a different multipart
+  // field name for the second image. Using upload.fields([...]) here
+  // makes Multer reject the whole request with:
+  //   MulterError: Unexpected field
+  // Accept the multipart files first, then resolve their roles below.
+  // This keeps the endpoint compatible with the existing Lamba HTML.
+  upload.any(),
   async (req, res) => {
     try {
       if (!TOKEN || !replicate) {
@@ -1178,8 +1176,23 @@ app.post(
         });
       }
 
-      const files = req.files || {};
-      const sourceImage = files.image?.[0] || null;
+      // upload.any() returns an array. Normalize it to the same
+      // field-name lookup structure used by the rest of this route.
+      const uploadedFiles = Array.isArray(req.files) ? req.files : [];
+      const files = {};
+      for (const file of uploadedFiles) {
+        if (!file?.fieldname) continue;
+        if (!files[file.fieldname]) files[file.fieldname] = [];
+        files[file.fieldname].push(file);
+      }
+
+      const sourceImage =
+        files.image?.[0] ||
+        files.sourceImage?.[0] ||
+        files.inputImage?.[0] ||
+        uploadedFiles[0] ||
+        null;
+
       const clothingImage =
         files.clothingImage?.[0] ||
         files.clothing?.[0] ||
@@ -1187,7 +1200,37 @@ app.post(
         files.image2?.[0] ||
         files.secondImage?.[0] ||
         files.referenceImage?.[0] ||
+        files.clothesImage?.[0] ||
+        files.outfitImage?.[0] ||
+        // If the HTML uses an unexpected second field name, use the
+        // second uploaded file as the clothing/reference image.
+        uploadedFiles[1] ||
         null;
+
+      const unknownFileFields = uploadedFiles
+        .map(file => file?.fieldname)
+        .filter(Boolean)
+        .filter((name, index, arr) => arr.indexOf(name) === index)
+        .filter(name => ![
+          'image',
+          'sourceImage',
+          'inputImage',
+          'clothingImage',
+          'clothing',
+          'garmentImage',
+          'image2',
+          'secondImage',
+          'referenceImage',
+          'clothesImage',
+          'outfitImage'
+        ].includes(name));
+
+      if (unknownFileFields.length) {
+        console.log(
+          'Generation: accepted previously unexpected multipart file field(s):',
+          unknownFileFields
+        );
+      }
 
       const requestedMode = String(
         req.body?.mode ||
