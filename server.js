@@ -26,6 +26,7 @@ const __dirname = path.dirname(__filename);
 
 const TOKEN = process.env.REPLICATE_API_TOKEN || '';
 const replicate = TOKEN ? new Replicate({ auth: TOKEN }) : null;
+const MULTI_IMAGE_MODEL = 'flux-kontext-apps/multi-image-kontext-pro';
 
 // -------------------- Paddle --------------------
 
@@ -889,7 +890,10 @@ app.get('/api/health', (_req, res) => {
       credits: PAYMENT_CREDITS,
       currency: 'USD'
     },
-    model: 'black-forest-labs/flux-kontext-pro'
+    models: {
+      normal: 'black-forest-labs/flux-kontext-pro',
+      clothing: MULTI_IMAGE_MODEL
+    }
   });
 });
 
@@ -1156,7 +1160,15 @@ app.get('/api/credits', async (req, res) => {
 
 app.post(
   '/api/generate',
-  upload.single('image'),
+  upload.fields([
+    { name: 'image', maxCount: 1 },
+    { name: 'clothingImage', maxCount: 1 },
+    { name: 'clothing', maxCount: 1 },
+    { name: 'garmentImage', maxCount: 1 },
+    { name: 'image2', maxCount: 1 },
+    { name: 'secondImage', maxCount: 1 },
+    { name: 'referenceImage', maxCount: 1 }
+  ]),
   async (req, res) => {
     try {
       if (!TOKEN || !replicate) {
@@ -1166,9 +1178,41 @@ app.post(
         });
       }
 
-      if (!req.file) {
+      const files = req.files || {};
+      const sourceImage = files.image?.[0] || null;
+      const clothingImage =
+        files.clothingImage?.[0] ||
+        files.clothing?.[0] ||
+        files.garmentImage?.[0] ||
+        files.image2?.[0] ||
+        files.secondImage?.[0] ||
+        files.referenceImage?.[0] ||
+        null;
+
+      const requestedMode = String(
+        req.body?.mode ||
+        req.body?.generationMode ||
+        req.body?.editMode ||
+        req.body?.feature ||
+        ''
+      ).trim().toLowerCase();
+
+      const clothingMode =
+        requestedMode === 'clothing' ||
+        requestedMode === 'change_clothes' ||
+        requestedMode === 'change-clothes' ||
+        requestedMode === 'смена одежды' ||
+        Boolean(clothingImage);
+
+      if (!sourceImage) {
         return res.status(400).json({
-          error: 'Фото не загружено.'
+          error: 'Исходное фото не загружено.'
+        });
+      }
+
+      if (clothingMode && !clothingImage) {
+        return res.status(400).json({
+          error: 'Фото одежды не загружено.'
         });
       }
 
@@ -1232,7 +1276,7 @@ app.post(
         req.body?.prompt || ''
       ).trim();
 
-      if (!userPrompt) {
+      if (!clothingMode && !userPrompt) {
         return res.status(400).json({
           error:
             'Напиши, что изменить на фото.'
@@ -1240,37 +1284,64 @@ app.post(
       }
 
       // ========================================================
-      // IDENTITY-LOCKED EDITING
-      // The input photo is the source of truth.
-      // For pose edits, modify the pose while keeping the same person.
+      // GENERATION MODE
+      // - Normal mode: the original single-image Flux Kontext Pro.
+      // - Clothing mode: official multi-image Kontext model.
+      //   Image 1 is the person/source photo.
+      //   Image 2 is the garment reference and is the only source
+      //   of the clothing itself. No text description is used as
+      //   the source of the garment.
       // ========================================================
-      const prompt = [
-        'Edit the uploaded photo. Keep the same person recognizable.',
-        'Preserve the person’s face, hair, appearance, natural body proportions, clothing, and original framing unless the user explicitly asks to change them.',
-        'Perform the USER REQUEST exactly and visibly. If the requested pose or action conflicts with the original pose, replace the original pose with the requested one.',
-        'For sitting, standing, lying, or any other explicit action, the person must physically perform that action in the final image.',
-        'Do not add unrequested changes.',
-        `USER REQUEST: ${userPrompt}`
-      ].join(' ');
+      let model;
+      let replicateInput;
+
+      if (clothingMode) {
+        model = MULTI_IMAGE_MODEL;
+        replicateInput = {
+          prompt: [
+            'Change only the clothing of the person in input_image_1.',
+            'Use input_image_2 as the visual garment reference and transfer the clothing from that image onto the person.',
+            'The garment in input_image_2 is the only source of the clothing design, material, colors, pattern, shape and visible details.',
+            'Do not use a text description as the source of the clothing.',
+            'Keep the exact same person from input_image_1: face, identity, hair, appearance, natural body proportions, figure, pose, position, camera angle, framing, perspective, lighting, shadows and background.',
+            'Do not change anything except the clothing. Do not add accessories or alter the environment.',
+            'Make the clothing fit naturally to the existing body and pose.'
+          ].join(' '),
+          input_image_1: sourceImage.buffer,
+          input_image_2: clothingImage.buffer,
+          aspect_ratio: 'match_input_image',
+          output_format: 'jpg',
+          safety_tolerance: 2
+        };
+      } else {
+        model = 'black-forest-labs/flux-kontext-pro';
+        const prompt = [
+          'Edit the uploaded photo. Keep the same person recognizable.',
+          'Preserve the person’s face, hair, appearance, natural body proportions, clothing, and original framing unless the user explicitly asks to change them.',
+          'Perform the USER REQUEST exactly and visibly. If the requested pose or action conflicts with the original pose, replace the original pose with the requested one.',
+          'For sitting, standing, lying, or any other explicit action, the person must physically perform that action in the final image.',
+          'Do not add unrequested changes.',
+          `USER REQUEST: ${userPrompt}`
+        ].join(' ');
+
+        replicateInput = {
+          prompt,
+          input_image: sourceImage.buffer,
+          aspect_ratio: 'match_input_image',
+          output_format: 'jpg',
+          safety_tolerance: 2,
+          prompt_upsampling: false
+        };
+      }
 
       // -------------------- Replicate --------------------
 
       let output;
 
       try {
-        output = await replicate.run(
-          'black-forest-labs/flux-kontext-pro',
-          {
-            input: {
-              prompt,
-              input_image: req.file.buffer,
-              aspect_ratio: 'match_input_image',
-              output_format: 'jpg',
-              safety_tolerance: 2,
-              prompt_upsampling: false
-            }
-          }
-        );
+        output = await replicate.run(model, {
+          input: replicateInput
+        });
       } catch (replicateError) {
         // IMPORTANT: Replicate errors (including HTTP 429) happen BEFORE
         // the credit-spending section below. Never spend a credit here.
@@ -1378,7 +1449,7 @@ app.post(
       }
 
       console.log(
-        `Generation successful: ${email}; -1 credit; remaining=${spent.credits}`
+        `Generation successful: ${email}; mode=${clothingMode ? 'clothing' : 'normal'}; -1 credit; remaining=${spent.credits}`
       );
 
       res.set('Content-Type', 'image/jpeg');
@@ -1516,6 +1587,8 @@ app.listen(PORT, () => {
 
 
   
+
+
 
 
 
