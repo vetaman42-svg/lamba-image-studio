@@ -1255,24 +1255,60 @@ app.post(
 
       // -------------------- Replicate --------------------
 
-      const output = await replicate.run(
-        'black-forest-labs/flux-kontext-pro',
-        {
-          input: {
-            prompt,
-            input_image: req.file.buffer,
-            aspect_ratio: 'match_input_image',
-            output_format: 'jpg',
-            safety_tolerance: 2,
-            prompt_upsampling: false
+      let output;
+
+      try {
+        output = await replicate.run(
+          'black-forest-labs/flux-kontext-pro',
+          {
+            input: {
+              prompt,
+              input_image: req.file.buffer,
+              aspect_ratio: 'match_input_image',
+              output_format: 'jpg',
+              safety_tolerance: 2,
+              prompt_upsampling: false
+            }
           }
+        );
+      } catch (replicateError) {
+        // IMPORTANT: Replicate errors (including HTTP 429) happen BEFORE
+        // the credit-spending section below. Never spend a credit here.
+        const status = Number(
+          replicateError?.status ||
+          replicateError?.statusCode ||
+          replicateError?.response?.status ||
+          0
+        );
+
+        const message = String(
+          replicateError?.message ||
+          'Ошибка Replicate.'
+        );
+
+        console.error('Replicate generation failed:', {
+          status,
+          message
+        });
+
+        if (status === 429 || /429|rate.?limit|too many requests/i.test(message)) {
+          return res.status(429).json({
+            error: 'Replicate временно перегружен. Фото не обработано, кредит НЕ списан.',
+            creditsCharged: false
+          });
         }
-      );
+
+        return res.status(502).json({
+          error: `Генерация не выполнена. Кредит НЕ списан. ${message}`,
+          creditsCharged: false
+        });
+      }
 
       if (!output) {
-        throw new Error(
-          'Модель не вернула изображение.'
-        );
+        return res.status(502).json({
+          error: 'Модель не вернула изображение. Кредит НЕ списан.',
+          creditsCharged: false
+        });
       }
 
       let data;
