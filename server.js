@@ -165,9 +165,8 @@ async function supabaseRequest(path, options = {}) {
 // Supabase data access
 // Tables used:
 //
-// public.profiles
-//   id uuid
-//   email text
+// Supabase Auth
+//   auth.users -> id uuid, email text
 //
 // public.user_credits
 //   user_id uuid
@@ -179,23 +178,45 @@ async function supabaseRequest(path, options = {}) {
 //   amount numeric
 //   currency text
 //
-// The 94 credits already stored in user_credits are left untouched.
+// Existing credits in user_credits are left untouched.
 // ============================================================
 
-async function findProfileByEmail(email) {
+// Find the real Lamba user in Supabase Auth.
+// Do NOT query public.profiles: the current database does not expose
+// the profiles.email column used by the old implementation.
+async function findUserByEmail(email) {
   const normalized = normalizeEmail(email);
   if (!normalized) return null;
 
-  const query =
-    `/rest/v1/profiles?select=id,email` +
-    `&email=eq.${encodeURIComponent(normalized)}` +
-    `&limit=1`;
+  const perPage = 1000;
 
-  const rows = await supabaseRequest(query, {
-    method: 'GET'
-  });
+  for (let page = 1; page <= 10; page++) {
+    const rows = await supabaseRequest(
+      `/auth/v1/admin/users?page=${page}&per_page=${perPage}`,
+      { method: 'GET' }
+    );
 
-  return Array.isArray(rows) && rows.length ? rows[0] : null;
+    const users = Array.isArray(rows)
+      ? rows
+      : Array.isArray(rows?.users)
+        ? rows.users
+        : [];
+
+    const user = users.find(
+      candidate => normalizeEmail(candidate?.email) === normalized
+    );
+
+    if (user) {
+      return {
+        id: user.id,
+        email: normalizeEmail(user.email)
+      };
+    }
+
+    if (users.length < perPage) break;
+  }
+
+  return null;
 }
 
 async function getCreditsByUserId(userId) {
@@ -569,7 +590,7 @@ app.post(
         }
 
         if (!userId && email) {
-          const profile = await findProfileByEmail(email);
+          const profile = await findUserByEmail(email);
           userId = profile?.id || '';
         }
 
@@ -735,7 +756,7 @@ app.post('/api/payment/create', async (req, res) => {
     }
 
     // The payment must belong to an existing Lamba user.
-    const profile = await findProfileByEmail(email);
+    const profile = await findUserByEmail(email);
 
     if (!profile?.id || !isUuid(profile.id)) {
       return res.status(404).json({
@@ -869,7 +890,7 @@ app.get('/api/credits', async (req, res) => {
       });
     }
 
-    const profile = await findProfileByEmail(email);
+    const profile = await findUserByEmail(email);
 
     if (!profile?.id) {
       return res.status(404).json({
@@ -951,7 +972,7 @@ app.post(
         });
       }
 
-      const profile = await findProfileByEmail(email);
+      const profile = await findUserByEmail(email);
 
       if (!profile?.id || !isUuid(profile.id)) {
         return res.status(404).json({
