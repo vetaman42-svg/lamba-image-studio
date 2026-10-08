@@ -31,11 +31,21 @@ textarea{width:100%;min-height:105px;resize:vertical;background:#10141c;color:#f
   </div>
   <div id="authStatus" style="margin-top:8px;color:#9aa3b2;"></div>
 </div>
+  <div class="mode-picker" style="margin:12px 0;display:flex;gap:10px;flex-wrap:wrap;">
+    <button id="normalModeBtn" class="primary" type="button" style="flex:1;min-width:180px">🪄 Обычная генерация</button>
+    <button id="clothingModeBtn" class="secondary" type="button" style="flex:1;min-width:180px">👕 Смена одежды</button>
+  </div>
   <div class="grid">
 <section class="card">
 <h2 data-i18n="sourceTitle">1. &#x418;&#x441;&#x445;&#x43e;&#x434;&#x43d;&#x43e;&#x435; &#x444;&#x43e;&#x442;&#x43e;</h2>
 <div class="drop" id="photoDrop" role="button" tabindex="0"><div id="dropText"><strong data-i18n="choosePhoto">&#x41d;&#x430;&#x436;&#x43c;&#x438;, &#x447;&#x442;&#x43e;&#x431;&#x44b; &#x432;&#x44b;&#x431;&#x440;&#x430;&#x442;&#x44c; &#x444;&#x43e;&#x442;&#x43e;</strong>PNG / JPG / WEBP</div><img id="source" hidden></div>
 <input id="file" type="file" accept="image/png,image/jpeg,image/webp">
+<div id="clothingPanel" hidden style="margin-top:14px;padding:12px;border:1px solid #2a3040;border-radius:14px;background:#10141c;">
+  <h2 style="margin:0 0 10px">👕 Одежда для переноса</h2>
+  <div class="drop" id="clothingDrop" style="height:150px"><div id="clothingDropText"><strong>Нажми, чтобы выбрать фото одежды</strong>PNG / JPG / WEBP</div><img id="clothingSource" hidden></div>
+  <input id="clothingFile" type="file" accept="image/png,image/jpeg,image/webp">
+  <div class="note">На втором фото показывается одежда. Текстовое описание одежды не используется.</div>
+</div>
 <h2 style="margin-top:16px" data-i18n="styleTitle">2. &#x41e;&#x431;&#x440;&#x430;&#x437;</h2>
 <div class="style-picker">
 <button class="secondary style-toggle" id="styleToggle" type="button"><span id="selectedStyleLabel">&#x421;&#x43f;&#x43e;&#x440;&#x442;&#x438;&#x432;&#x43d;&#x44b;&#x439;</span><span id="styleArrow">&#x25be;</span></button>
@@ -280,6 +290,9 @@ async function refundCredit(){
 const file=document.getElementById('file'),source=document.getElementById('source'),dropText=document.getElementById('dropText');
 const status=document.getElementById('status'),prompt=document.getElementById('prompt'),preview=document.getElementById('preview'),gen=document.getElementById('generate');
 const photoDrop=document.getElementById('photoDrop'),styleToggle=document.getElementById('styleToggle'),styles=document.getElementById('styles'),selectedStyleLabel=document.getElementById('selectedStyleLabel'),styleArrow=document.getElementById('styleArrow');
+const normalModeBtn=document.getElementById('normalModeBtn'),clothingModeBtn=document.getElementById('clothingModeBtn');
+const clothingPanel=document.getElementById('clothingPanel'),clothingFile=document.getElementById('clothingFile'),clothingSource=document.getElementById('clothingSource'),clothingDrop=document.getElementById('clothingDrop'),clothingDropText=document.getElementById('clothingDropText');
+let clothingMode=false;
 let selectedStyle='\u0441\u043f\u043e\u0440\u0442\u0438\u0432\u043d\u044b\u0439 \u043e\u0431\u0440\u0430\u0437';
 applyLanguage();
 refreshCredits().catch(()=>{});
@@ -288,6 +301,11 @@ photoDrop.addEventListener('click',e=>{if(e.target===source)return;file.click()}
 photoDrop.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();file.click()}});
 styleToggle.onclick=()=>{const open=!styles.hidden;styles.hidden=open;styleArrow.textContent=open?'\u25be':'\u25b4'};
 document.querySelectorAll('.chip').forEach(b=>b.onclick=()=>{document.querySelectorAll('.chip').forEach(x=>x.classList.remove('active'));b.classList.add('active');selectedStyle=b.dataset.style;selectedStyleLabel.textContent=b.textContent;prompt.value=stylePrompts[selectedStyle]?.[currentLang]||translations[currentLang].prompt;styles.hidden=true;styleArrow.textContent='\u25be'});
+normalModeBtn.onclick=()=>{clothingMode=false;clothingPanel.hidden=true;normalModeBtn.className='primary';clothingModeBtn.className='secondary';status.textContent='';};
+clothingModeBtn.onclick=()=>{clothingMode=true;clothingPanel.hidden=false;normalModeBtn.className='secondary';clothingModeBtn.className='primary';status.textContent='👕 Выбери фото человека и фото одежды.';};
+clothingDrop.addEventListener('click',e=>{if(e.target===clothingSource)return;clothingFile.click()});
+clothingDrop.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();clothingFile.click()}});
+clothingFile.onchange=()=>{const f=clothingFile.files?.[0];if(!f)return;if(!f.type.startsWith('image/')){status.textContent=translations[currentLang].invalidFile;return}if(clothingSource.src)URL.revokeObjectURL(clothingSource.src);clothingSource.src=URL.createObjectURL(f);clothingSource.hidden=false;clothingDropText.hidden=true;status.textContent='👕 Фото одежды загружено.'};
 source.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();photoDrop.classList.toggle('zoomed')});
 document.getElementById('clear').onclick=()=>{const saveImage=document.getElementById('saveImage');if(saveImage)saveImage.remove();file.value='';if(source.src)URL.revokeObjectURL(source.src);source.removeAttribute('src');source.hidden=true;dropText.hidden=false;photoDrop.classList.remove('zoomed');status.textContent='';if(preview.dataset.objectUrl)URL.revokeObjectURL(preview.dataset.objectUrl);delete preview.dataset.objectUrl;preview.innerHTML='<div class="empty"><div class="icon">\ud83d\uddbc\ufe0f</div><div data-i18n="emptyResult">'+translations[currentLang].emptyResult+'</div></div>'};
 document.getElementById('registerBtn').onclick=async()=>{
@@ -366,6 +384,10 @@ gen.onclick=async()=>{
 
   if(!file.files?.[0]){
     status.textContent=translations[currentLang].chooseFirst;
+    return;
+  }
+  if(clothingMode && !clothingFile.files?.[0]){
+    status.textContent='👕 Сначала выбери фото одежды.';
     return;
   }
 
@@ -475,7 +497,11 @@ gen.onclick=async()=>{
     const fd=new FormData();
     fd.append('image',file.files[0]);
     fd.append('style',selectedStyle);
-    fd.append('prompt',prompt.value);
+    fd.append('prompt',clothingMode
+      ? 'Перенести одежду визуально со второго изображения на человека с первого изображения. Сохранить лицо, волосы, тело, пропорции, возрастной вид, позу и фон исходного человека без изменений. Менять только одежду. Не использовать текстовое описание одежды.'
+      : prompt.value);
+    fd.append('mode',clothingMode?'clothing_change':'normal');
+    if(clothingMode) fd.append('clothing_image',clothingFile.files[0]);
     // Надёжно получаем email именно из авторизованного пользователя Supabase.
     // getUser() запрашивает актуального пользователя, поэтому не зависим
     // от того, что лежит/не лежит в локальном поле Email на странице.
