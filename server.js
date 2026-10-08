@@ -2,13 +2,11 @@ import express from 'express';
 import multer from 'multer';
 import Replicate from 'replicate';
 import crypto from 'crypto';
-import path from 'path';
-import { fileURLToPath } from 'url';
+import path from 'node:path';
+
 const app = express();
 const upload = multer({ limits: { fileSize: 20 * 1024 * 1024 } });
 const PORT = process.env.PORT || 3000;
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 // ============================================================
 // LAMBA IMAGE STUDIO
@@ -26,7 +24,6 @@ const __dirname = path.dirname(__filename);
 
 const TOKEN = process.env.REPLICATE_API_TOKEN || '';
 const replicate = TOKEN ? new Replicate({ auth: TOKEN }) : null;
-const MULTI_IMAGE_MODEL = 'flux-kontext-apps/multi-image-kontext-pro';
 
 // -------------------- Paddle --------------------
 
@@ -74,49 +71,6 @@ const SUPABASE_HEADERS = {
 
 function normalizeEmail(value) {
   return String(value || '').trim().toLowerCase();
-}
-
-// Resolve the currently logged-in Supabase user from the access token.
-// This is the primary identity source for payment creation: the frontend
-// does not have to guess/pass an email field when a Supabase session exists.
-function getBearerToken(req) {
-  const header = String(req.get('Authorization') || '').trim();
-  if (!header.toLowerCase().startsWith('bearer ')) return '';
-  return header.slice(7).trim();
-}
-
-async function getAuthenticatedSupabaseUser(req) {
-  const accessToken = getBearerToken(req);
-  if (!accessToken || !SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
-    return null;
-  }
-
-  const response = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
-    method: 'GET',
-    headers: {
-      apikey: SUPABASE_SERVICE_ROLE_KEY,
-      Authorization: `Bearer ${accessToken}`
-    }
-  });
-
-  const text = await response.text();
-  let data = null;
-  if (text) {
-    try {
-      data = JSON.parse(text);
-    } catch {
-      data = null;
-    }
-  }
-
-  if (!response.ok || !data?.id || !isUuid(data.id)) {
-    return null;
-  }
-
-  return {
-    id: data.id,
-    email: normalizeEmail(data.email)
-  };
 }
 
 function isUuid(value) {
@@ -228,70 +182,20 @@ async function supabaseRequest(path, options = {}) {
 // The 94 credits already stored in user_credits are left untouched.
 // ============================================================
 
-// profiles in this project does NOT contain an email column.
-// Therefore we resolve the user's email through Supabase Auth,
-// then use the returned Auth user id with public.user_credits.
-// This fixes: "column profiles.email does not exist".
 async function findProfileByEmail(email) {
   const normalized = normalizeEmail(email);
   if (!normalized) return null;
 
-  // Resolve the Auth user directly by email instead of downloading only
-  // the first 1000 users and searching that page locally.
   const query =
-    `/auth/v1/admin/users?email=${encodeURIComponent(normalized)}`;
+    `/rest/v1/profiles?select=id,email` +
+    `&email=eq.${encodeURIComponent(normalized)}` +
+    `&limit=1`;
 
-  const response = await fetch(
-    `${SUPABASE_URL}${query}`,
-    {
-      method: 'GET',
-      headers: {
-        apikey: SUPABASE_SERVICE_ROLE_KEY,
-        Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`
-      }
-    }
-  );
+  const rows = await supabaseRequest(query, {
+    method: 'GET'
+  });
 
-  const text = await response.text();
-
-  let data = null;
-  if (text) {
-    try {
-      data = JSON.parse(text);
-    } catch {
-      data = null;
-    }
-  }
-
-  if (!response.ok) {
-    throw new Error(
-      data?.msg ||
-      data?.message ||
-      data?.error_description ||
-      `Supabase Auth HTTP ${response.status}`
-    );
-  }
-
-  const users = Array.isArray(data)
-    ? data
-    : Array.isArray(data?.users)
-      ? data.users
-      : data?.id
-        ? [data]
-        : [];
-
-  const user = users.find(
-    item => normalizeEmail(item?.email) === normalized
-  );
-
-  if (!user?.id || !isUuid(user.id)) {
-    return null;
-  }
-
-  return {
-    id: user.id,
-    email: user.email
-  };
+  return Array.isArray(rows) && rows.length ? rows[0] : null;
 }
 
 async function getCreditsByUserId(userId) {
@@ -475,94 +379,31 @@ async function paddleRequest(endpoint, options = {}) {
     throw new Error('PADDLE_API_KEY не настроен на Render.');
   }
 
-  const MAX_RETRIES = 2;
-
-  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-    const response = await fetch(`${PADDLE_API_BASE}${endpoint}`, {
-      ...options,
-      headers: {
-        Authorization: `Bearer ${PADDLE_API_KEY}`,
-        'Content-Type': 'application/json',
-        ...(options.headers || {})
-      }
-    });
-
-    const rawText = await response.text();
-
-    let data = {};
-    try {
-      data = rawText ? JSON.parse(rawText) : {};
-    } catch {
-      data = { raw: rawText };
+  const response = await fetch(`${PADDLE_API_BASE}${endpoint}`, {
+    ...options,
+    headers: {
+      Authorization: `Bearer ${PADDLE_API_KEY}`,
+      'Content-Type': 'application/json',
+      ...(options.headers || {})
     }
+  });
 
-    // Paddle rate limit: HTTP 429
-    if (response.status === 429) {
-      const retryAfterHeader = response.headers.get('Retry-After');
-      const retryAfter = Number(retryAfterHeader);
+  const data = await response.json().catch(() => ({}));
 
-      console.error('Paddle API rate limit:', {
-        endpoint,
-        status: response.status,
-        retryAfter: retryAfterHeader,
-        response: data
-      });
+  if (!response.ok) {
+    const message =
+      data?.error?.detail ||
+      data?.error?.code ||
+      data?.detail ||
+      'Ошибка Paddle API.';
 
-      if (
-        attempt < MAX_RETRIES &&
-        Number.isFinite(retryAfter) &&
-        retryAfter >= 0
-      ) {
-        await sleep(Math.min(retryAfter * 1000, 65000));
-        continue;
-      }
-
-      const message =
-        data?.error?.detail ||
-        data?.error?.message ||
-        data?.error?.code ||
-        data?.detail ||
-        data?.message ||
-        `Paddle временно ограничил запросы. Повтори через ${
-          Number.isFinite(retryAfter) ? retryAfter : 60
-        } секунд.`;
-
-      const error = new Error(String(message));
-      error.status = 429;
-      error.retryAfter = Number.isFinite(retryAfter)
-        ? retryAfter
-        : 60;
-      error.details = data;
-
-      throw error;
-    }
-
-    if (!response.ok) {
-      console.error('Paddle API error:', {
-        endpoint,
-        status: response.status,
-        response: data
-      });
-
-      const message =
-        data?.error?.detail ||
-        data?.error?.message ||
-        data?.error?.code ||
-        data?.detail ||
-        data?.message ||
-        `Ошибка Paddle API. HTTP ${response.status}`;
-
-      const error = new Error(String(message));
-      error.status = response.status;
-      error.details = data;
-
-      throw error;
-    }
-
-    return data;
+    const error = new Error(message);
+    error.status = response.status;
+    error.details = data;
+    throw error;
   }
 
-  throw new Error('Paddle API: превышено количество повторных попыток.');
+  return data;
 }
 
 // ============================================================
@@ -614,10 +455,10 @@ function verifyPaddleWebhook(rawBody, signatureHeader) {
     return false;
   }
 
-  // Allow reasonable delivery/network delay while still rejecting stale webhooks.
+  // Paddle's SDK uses a short timestamp tolerance.
   const age = Math.abs(Math.floor(Date.now() / 1000) - timestamp);
 
-  if (age > 300) {
+  if (age > 5) {
     return false;
   }
 
@@ -782,32 +623,21 @@ app.post(
         // protection across normal webhook retries/restarts.
         // --------------------------------------------------------
 
-        // Record the transaction FIRST. This makes the durable payment
-        // ledger the idempotency gate before any credits are added.
+        const creditResult = await addCreditsAtomic(
+          userId,
+          PAYMENT_CREDITS
+        );
+
         const insertedOrder = await createPaymentOrder(
           transactionId,
           userId
         );
 
-        // If the transaction already exists, never add credits again.
+        // If another worker inserted the order between the check and
+        // our insert, do not silently continue with another credit.
+        // This situation is extremely unlikely with the Render lock,
+        // but we protect the database ledger here as well.
         if (!insertedOrder) {
-          const existing = await findPaymentOrder(transactionId);
-
-          if (existing) {
-            const balance = await getCreditsByUserId(existing.user_id);
-
-            console.log(
-              `Paddle duplicate ignored after ledger check: ${transactionId}`
-            );
-
-            return res.json({
-              ok: true,
-              duplicate: true,
-              transactionId,
-              credits: balance?.credits ?? null
-            });
-          }
-
           console.error(
             `Paddle payment ledger conflict for ${transactionId}.`
           );
@@ -817,11 +647,6 @@ app.post(
               'Платёж уже обрабатывается другим процессом. Paddle повторит webhook.'
           });
         }
-
-        const creditResult = await addCreditsAtomic(
-          userId,
-          PAYMENT_CREDITS
-        );
 
         console.log(
           `Paddle payment completed: ${transactionId}; ` +
@@ -853,23 +678,9 @@ app.post(
 // ============================================================
 
 app.use(express.json({ limit: '2mb' }));
-app.use(express.static(__dirname));
+app.use(express.static(path.join(process.cwd(), 'public')));
+app.use(express.static('.'));
 
-app.get('/pricing', (_req, res) => {
-  res.sendFile(path.join(__dirname, 'pricing.html'));
-});
-
-app.get('/terms', (_req, res) => {
-  res.sendFile(path.join(__dirname, 'terms.html'));
-});
-
-app.get('/privacy', (_req, res) => {
-  res.sendFile(path.join(__dirname, 'privacy.html'));
-});
-
-app.get('/refunds', (_req, res) => {
-  res.sendFile(path.join(__dirname, 'refunds.html'));
-});
 // ============================================================
 // Health
 // ============================================================
@@ -890,10 +701,7 @@ app.get('/api/health', (_req, res) => {
       credits: PAYMENT_CREDITS,
       currency: 'USD'
     },
-    models: {
-      normal: 'black-forest-labs/flux-kontext-pro',
-      clothing: MULTI_IMAGE_MODEL
-    }
+    model: 'black-forest-labs/flux-kontext-pro'
   });
 });
 
@@ -904,42 +712,11 @@ app.get('/api/health', (_req, res) => {
 
 app.post('/api/payment/create', async (req, res) => {
   try {
-    // PRIMARY: identify the logged-in Supabase user from the session token.
-    // FALLBACK: keep compatibility with the existing frontend that sends email.
-    const authUser = await getAuthenticatedSupabaseUser(req);
-    const requestedEmail = normalizeEmail(
-      req.body?.email ||
-      req.body?.userEmail ||
-      req.body?.user_email ||
-      req.body?.accountEmail ||
-      req.get('X-Lamba-User-Email') ||
-      req.get('X-User-Email')
-    );
-    const requestedUserId = String(
-      req.body?.userId ||
-      req.body?.user_id ||
-      req.body?.accountId ||
-      req.get('X-Supabase-User-Id') ||
-      ''
-    ).trim();
+    const email = normalizeEmail(req.body?.email);
 
-    let email = authUser?.email || requestedEmail;
-    let userId = authUser?.id || '';
-
-    // Never allow a logged-in session to create a payment for another email/user.
-    if (authUser && requestedEmail && requestedEmail !== authUser.email) {
-      return res.status(403).json({
-        error: 'Email платежа не совпадает с текущим аккаунтом.'
-      });
-    }
-
-    if (!userId && isUuid(requestedUserId)) {
-      userId = requestedUserId;
-    }
-
-    if (!email && !userId) {
-      return res.status(401).json({
-        error: 'Пользователь не авторизован. Передай Supabase session в Authorization: Bearer <access_token>.'
+    if (!email) {
+      return res.status(400).json({
+        error: 'Нужен email пользователя.'
       });
     }
 
@@ -957,18 +734,8 @@ app.post('/api/payment/create', async (req, res) => {
       });
     }
 
-    // The payment must belong to the authenticated Lamba user.
-    // If an authenticated Supabase session was supplied, its user id is already
-    // trusted and we do not perform a second email lookup.
-    let profile = authUser ? authUser : null;
-
-    if (!profile && email) {
-      profile = await findProfileByEmail(email);
-    }
-
-    if (!profile?.id && userId) {
-      profile = { id: userId, email };
-    }
+    // The payment must belong to an existing Lamba user.
+    const profile = await findProfileByEmail(email);
 
     if (!profile?.id || !isUuid(profile.id)) {
       return res.status(404).json({
@@ -976,8 +743,6 @@ app.post('/api/payment/create', async (req, res) => {
           'Пользователь с этим email не найден в Supabase.'
       });
     }
-
-    email = normalizeEmail(profile.email || email);
 
     const transaction = await paddleRequest('/transactions', {
       method: 'POST',
@@ -1015,7 +780,7 @@ app.post('/api/payment/create', async (req, res) => {
     }
 
     console.log(
-      `Paddle checkout created: ${data.id}; ${email || 'no-email'}; user=${profile.id}; auth=${authUser ? 'supabase-session' : 'fallback'}; $${PAYMENT_AMOUNT_USD}; +${PAYMENT_CREDITS}`
+      `Paddle checkout created: ${data.id}; ${email}; $${PAYMENT_AMOUNT_USD}; +${PAYMENT_CREDITS}`
     );
 
     return res.json({
@@ -1029,24 +794,13 @@ app.post('/api/payment/create', async (req, res) => {
   } catch (err) {
     console.error('Paddle create transaction:', err);
 
-    if (err?.status === 429) {
-      return res.status(429).json({
+    return res.status(err?.status >= 400 && err?.status < 500
+      ? err.status
+      : 500).json({
         error:
           err?.message ||
-          'Paddle временно ограничил запросы. Повтори позже.',
-        retryAfter: Number(err?.retryAfter || 60)
+          'Ошибка создания платежа Paddle.'
       });
-    }
-
-    return res.status(
-      err?.status >= 400 && err?.status < 500
-        ? err.status
-        : 500
-    ).json({
-      error:
-        err?.message ||
-        'Ошибка создания платежа Paddle.'
-    });
   }
 });
 
@@ -1160,13 +914,10 @@ app.get('/api/credits', async (req, res) => {
 
 app.post(
   '/api/generate',
-  // IMPORTANT: the current Lamba HTML may use a different multipart
-  // field name for the second image. Using upload.fields([...]) here
-  // makes Multer reject the whole request with:
-  //   MulterError: Unexpected field
-  // Accept the multipart files first, then resolve their roles below.
-  // This keeps the endpoint compatible with the existing Lamba HTML.
-  upload.any(),
+  upload.fields([
+    { name: 'image', maxCount: 1 },
+    { name: 'clothing_image', maxCount: 1 }
+  ]),
   async (req, res) => {
     try {
       if (!TOKEN || !replicate) {
@@ -1176,133 +927,35 @@ app.post(
         });
       }
 
-      // upload.any() returns an array. Normalize it to the same
-      // field-name lookup structure used by the rest of this route.
-      const uploadedFiles = Array.isArray(req.files) ? req.files : [];
-      const files = {};
-      for (const file of uploadedFiles) {
-        if (!file?.fieldname) continue;
-        if (!files[file.fieldname]) files[file.fieldname] = [];
-        files[file.fieldname].push(file);
-      }
+      const mainFile = req.files?.image?.[0] || null;
+      const clothingFile = req.files?.clothing_image?.[0] || null;
+      const clothingMode = String(req.body?.mode || '').trim() === 'clothing_change';
 
-      const sourceImage =
-        files.image?.[0] ||
-        files.sourceImage?.[0] ||
-        files.inputImage?.[0] ||
-        uploadedFiles[0] ||
-        null;
-
-      const clothingImage =
-        files.clothingImage?.[0] ||
-        files.clothing?.[0] ||
-        files.garmentImage?.[0] ||
-        files.image2?.[0] ||
-        files.secondImage?.[0] ||
-        files.referenceImage?.[0] ||
-        files.clothesImage?.[0] ||
-        files.outfitImage?.[0] ||
-        // If the HTML uses an unexpected second field name, use the
-        // second uploaded file as the clothing/reference image.
-        uploadedFiles[1] ||
-        null;
-
-      const unknownFileFields = uploadedFiles
-        .map(file => file?.fieldname)
-        .filter(Boolean)
-        .filter((name, index, arr) => arr.indexOf(name) === index)
-        .filter(name => ![
-          'image',
-          'sourceImage',
-          'inputImage',
-          'clothingImage',
-          'clothing',
-          'garmentImage',
-          'image2',
-          'secondImage',
-          'referenceImage',
-          'clothesImage',
-          'outfitImage'
-        ].includes(name));
-
-      if (unknownFileFields.length) {
-        console.log(
-          'Generation: accepted previously unexpected multipart file field(s):',
-          unknownFileFields
-        );
-      }
-
-      const requestedMode = String(
-        req.body?.mode ||
-        req.body?.generationMode ||
-        req.body?.editMode ||
-        req.body?.feature ||
-        ''
-      ).trim().toLowerCase();
-
-      const clothingMode =
-        requestedMode === 'clothing' ||
-        requestedMode === 'change_clothes' ||
-        requestedMode === 'change-clothes' ||
-        requestedMode === 'смена одежды' ||
-        Boolean(clothingImage);
-
-      if (!sourceImage) {
+      if (!mainFile) {
         return res.status(400).json({
-          error: 'Исходное фото не загружено.'
+          error: 'Фото человека не загружено.'
         });
       }
 
-      if (clothingMode && !clothingImage) {
+      if (clothingMode && !clothingFile) {
         return res.status(400).json({
           error: 'Фото одежды не загружено.'
         });
       }
 
-      // Accept the logged-in user's email from the frontend.
-      // The image upload uses multipart/form-data, so email must be sent
-      // as a form field together with the image.
-      // Email can arrive either as a multipart form field or in a header.
-      // Accept all names currently used by the Lamba frontend.
-      // Prefer the authenticated Supabase user id when the frontend sends it.
-      // Email remains a compatibility fallback for the current Lamba frontend.
-      const clientUserId = String(
-        req.body?.userId ||
-        req.body?.user_id ||
-        req.body?.accountId ||
-        req.get('X-Supabase-User-Id') ||
-        ''
-      ).trim();
+      const email = normalizeEmail(req.body?.email);
 
-      const email = normalizeEmail(
-        req.body?.email ||
-        req.body?.userEmail ||
-        req.body?.user_email ||
-        req.body?.accountEmail ||
-        req.get('X-Lamba-User-Email') ||
-        req.get('X-User-Email')
-      );
-
-      let profile = null;
-
-      if (isUuid(clientUserId)) {
-        profile = { id: clientUserId, email };
-      } else if (email) {
-        profile = await findProfileByEmail(email);
+      if (!email) {
+        return res.status(400).json({
+          error: 'Нужен email пользователя.'
+        });
       }
 
-      if (!profile?.id || !isUuid(profile.id)) {
-        console.error(
-          'Generation: user identity missing.',
-          {
-            hasEmail: !!email,
-            hasUserId: !!clientUserId,
-            receivedFields: Object.keys(req.body || {})
-          }
-        );
+      const profile = await findProfileByEmail(email);
 
-        return res.status(400).json({
-          error: 'Не удалось определить пользователя.'
+      if (!profile?.id || !isUuid(profile.id)) {
+        return res.status(404).json({
+          error: 'Пользователь не найден.'
         });
       }
 
@@ -1315,114 +968,63 @@ app.post(
         });
       }
 
-      const userPrompt = String(
+      const prompt = String(
         req.body?.prompt || ''
       ).trim();
 
-      if (!clothingMode && !userPrompt) {
+      if (!prompt) {
         return res.status(400).json({
           error:
             'Напиши, что изменить на фото.'
         });
       }
 
-      // ========================================================
-      // GENERATION MODE
-      // - Normal mode: the original single-image Flux Kontext Pro.
-      // - Clothing mode: official multi-image Kontext model.
-      //   Image 1 is the person/source photo.
-      //   Image 2 is the garment reference and is the only source
-      //   of the clothing itself. No text description is used as
-      //   the source of the garment.
-      // ========================================================
-      let model;
-      let replicateInput;
-
-      if (clothingMode) {
-        model = MULTI_IMAGE_MODEL;
-        replicateInput = {
-          prompt: [
-            'Change only the clothing of the person in input_image_1.',
-            'Use input_image_2 as the visual garment reference and transfer the clothing from that image onto the person.',
-            'The garment in input_image_2 is the only source of the clothing design, material, colors, pattern, shape and visible details.',
-            'Do not use a text description as the source of the clothing.',
-            'Keep the exact same person from input_image_1: face, identity, hair, appearance, natural body proportions, figure, pose, position, camera angle, framing, perspective, lighting, shadows and background.',
-            'Do not change anything except the clothing. Do not add accessories or alter the environment.',
-            'Make the clothing fit naturally to the existing body and pose.'
-          ].join(' '),
-          input_image_1: sourceImage.buffer,
-          input_image_2: clothingImage.buffer,
-          aspect_ratio: 'match_input_image',
-          output_format: 'jpg',
-          safety_tolerance: 2
-        };
-      } else {
-        model = 'black-forest-labs/flux-kontext-pro';
-        const prompt = [
-          'Edit the uploaded photo. Keep the same person recognizable.',
-          'Preserve the person’s face, hair, appearance, natural body proportions, clothing, and original framing unless the user explicitly asks to change them.',
-          'Perform the USER REQUEST exactly and visibly. If the requested pose or action conflicts with the original pose, replace the original pose with the requested one.',
-          'For sitting, standing, lying, or any other explicit action, the person must physically perform that action in the final image.',
-          'Do not add unrequested changes.',
-          `USER REQUEST: ${userPrompt}`
-        ].join(' ');
-
-        replicateInput = {
-          prompt,
-          input_image: sourceImage.buffer,
-          aspect_ratio: 'match_input_image',
-          output_format: 'jpg',
-          safety_tolerance: 2,
-          prompt_upsampling: false
-        };
-      }
-
       // -------------------- Replicate --------------------
-
-      let output;
-
-      try {
-        output = await replicate.run(model, {
-          input: replicateInput
-        });
-      } catch (replicateError) {
-        // IMPORTANT: Replicate errors (including HTTP 429) happen BEFORE
-        // the credit-spending section below. Never spend a credit here.
-        const status = Number(
-          replicateError?.status ||
-          replicateError?.statusCode ||
-          replicateError?.response?.status ||
-          0
-        );
-
-        const message = String(
-          replicateError?.message ||
-          'Ошибка Replicate.'
-        );
-
-        console.error('Replicate generation failed:', {
-          status,
-          message
-        });
-
-        if (status === 429 || /429|rate.?limit|too many requests/i.test(message)) {
-          return res.status(429).json({
-            error: 'Replicate временно перегружен. Фото не обработано, кредит НЕ списан.',
-            creditsCharged: false
-          });
-        }
-
-        return res.status(502).json({
-          error: `Генерация не выполнена. Кредит НЕ списан. ${message}`,
-          creditsCharged: false
-        });
-      }
+      // Normal generation keeps the existing FLUX Kontext Pro path.
+      // Clothing change uses the official two-image Kontext model:
+      // image 1 = person, image 2 = clothing reference.
+      const output = clothingMode
+        ? await replicate.run(
+            'flux-kontext-apps/multi-image-kontext-pro',
+            {
+              input: {
+                prompt: [
+                  'Use the FIRST image as the base photo of the person.',
+                  'Use the SECOND image ONLY as the clothing reference.',
+                  'Transfer the clothing from the second image onto the person in the first image.',
+                  'Transfer the complete visible outfit, including top and bottom clothing when present.',
+                  'Do not place, paste, collage, or show the second image itself in the result.',
+                  'Keep the person from the first image unchanged: face, hair, body, proportions, age appearance, pose, skin, lighting, and background.',
+                  'Change only the clothing. Do not change the person or the scene.',
+                  'Do not use a textual description as the source of the clothing; the second image is the clothing source.',
+                  prompt
+                ].join(' '),
+                input_image_1: mainFile.buffer,
+                input_image_2: clothingFile.buffer,
+                aspect_ratio: 'match_input_image',
+                output_format: 'jpg',
+                safety_tolerance: 2
+              }
+            }
+          )
+        : await replicate.run(
+            'black-forest-labs/flux-kontext-pro',
+            {
+              input: {
+                prompt,
+                input_image: mainFile.buffer,
+                aspect_ratio: 'match_input_image',
+                output_format: 'jpg',
+                safety_tolerance: 2,
+                prompt_upsampling: false
+              }
+            }
+          );
 
       if (!output) {
-        return res.status(502).json({
-          error: 'Модель не вернула изображение. Кредит НЕ списан.',
-          creditsCharged: false
-        });
+        throw new Error(
+          'Модель не вернула изображение.'
+        );
       }
 
       let data;
@@ -1492,7 +1094,7 @@ app.post(
       }
 
       console.log(
-        `Generation successful: ${email}; mode=${clothingMode ? 'clothing' : 'normal'}; -1 credit; remaining=${spent.credits}`
+        `Generation successful: ${email}; -1 credit; remaining=${spent.credits}`
       );
 
       res.set('Content-Type', 'image/jpeg');
@@ -1625,15 +1227,3 @@ app.listen(PORT, () => {
     `Supabase=${SUPABASE_URL ? 'configured' : 'missing'}`
   );
 });
-
-
-
-
-  
-
-
-
-
-
-
-
