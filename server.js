@@ -3,6 +3,7 @@ import multer from 'multer';
 import Replicate from 'replicate';
 import crypto from 'crypto';
 import path from 'node:path';
+import fs from 'node:fs';
 
 const app = express();
 const upload = multer({ limits: { fileSize: 20 * 1024 * 1024 } });
@@ -699,7 +700,26 @@ app.post(
 // ============================================================
 
 app.use(express.json({ limit: '2mb' }));
-app.use(express.static(path.join(process.cwd(), 'public')));
+
+// IMPORTANT: serve the full Lamba interface explicitly at "/"
+// before express.static can automatically choose public/index.html.
+// The old index.html may contain the simplified/legacy interface.
+const publicDir = path.join(process.cwd(), 'public');
+const fullLambaHtml = path.join(publicDir, 'Lamba_Image_Studio_v03_index.html');
+
+app.get('/', (_req, res) => {
+  if (fs.existsSync(fullLambaHtml)) {
+    res.set('Cache-Control', 'no-store');
+    return res.sendFile(fullLambaHtml);
+  }
+
+  console.error('Full Lamba HTML not found:', fullLambaHtml);
+  return res.status(500).type('text/plain').send(
+    'Lamba startup error: public/Lamba_Image_Studio_v03_index.html was not found. Check the deployed public folder and filename.'
+  );
+});
+
+app.use(express.static(publicDir));
 app.use(express.static('.'));
 
 // ============================================================
