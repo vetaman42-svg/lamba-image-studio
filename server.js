@@ -2,7 +2,6 @@ import express from 'express';
 import multer from 'multer';
 import Replicate from 'replicate';
 import crypto from 'crypto';
-import path from 'node:path';
 
 const app = express();
 const upload = multer({ limits: { fileSize: 20 * 1024 * 1024 } });
@@ -914,10 +913,7 @@ app.get('/api/credits', async (req, res) => {
 
 app.post(
   '/api/generate',
-  upload.fields([
-    { name: 'image', maxCount: 1 },
-    { name: 'clothing_image', maxCount: 1 }
-  ]),
+  upload.single('image'),
   async (req, res) => {
     try {
       if (!TOKEN || !replicate) {
@@ -927,19 +923,9 @@ app.post(
         });
       }
 
-      const mainFile = req.files?.image?.[0] || null;
-      const clothingFile = req.files?.clothing_image?.[0] || null;
-      const clothingMode = String(req.body?.mode || '').trim() === 'clothing_change';
-
-      if (!mainFile) {
+      if (!req.file) {
         return res.status(400).json({
-          error: 'Фото человека не загружено.'
-        });
-      }
-
-      if (clothingMode && !clothingFile) {
-        return res.status(400).json({
-          error: 'Фото одежды не загружено.'
+          error: 'Фото не загружено.'
         });
       }
 
@@ -980,46 +966,20 @@ app.post(
       }
 
       // -------------------- Replicate --------------------
-      // Normal generation keeps the existing FLUX Kontext Pro path.
-      // Clothing change uses the official two-image Kontext model:
-      // image 1 = person, image 2 = clothing reference.
-      const output = clothingMode
-        ? await replicate.run(
-            'flux-kontext-apps/multi-image-kontext-pro',
-            {
-              input: {
-                prompt: [
-                  'Use the FIRST image as the base photo of the person.',
-                  'Use the SECOND image ONLY as the clothing reference.',
-                  'Transfer the clothing from the second image onto the person in the first image.',
-                  'Transfer the complete visible outfit, including top and bottom clothing when present.',
-                  'Do not place, paste, collage, or show the second image itself in the result.',
-                  'Keep the person from the first image unchanged: face, hair, body, proportions, age appearance, pose, skin, lighting, and background.',
-                  'Change only the clothing. Do not change the person or the scene.',
-                  'Do not use a textual description as the source of the clothing; the second image is the clothing source.',
-                  prompt
-                ].join(' '),
-                input_image_1: mainFile.buffer,
-                input_image_2: clothingFile.buffer,
-                aspect_ratio: 'match_input_image',
-                output_format: 'jpg',
-                safety_tolerance: 2
-              }
-            }
-          )
-        : await replicate.run(
-            'black-forest-labs/flux-kontext-pro',
-            {
-              input: {
-                prompt,
-                input_image: mainFile.buffer,
-                aspect_ratio: 'match_input_image',
-                output_format: 'jpg',
-                safety_tolerance: 2,
-                prompt_upsampling: false
-              }
-            }
-          );
+
+      const output = await replicate.run(
+        'black-forest-labs/flux-kontext-pro',
+        {
+          input: {
+            prompt,
+            input_image: req.file.buffer,
+            aspect_ratio: 'match_input_image',
+            output_format: 'jpg',
+            safety_tolerance: 2,
+            prompt_upsampling: false
+          }
+        }
+      );
 
       if (!output) {
         throw new Error(
