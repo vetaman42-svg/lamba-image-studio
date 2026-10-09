@@ -480,7 +480,7 @@ function verifyPaddleWebhook(rawBody, signatureHeader) {
   // Paddle's SDK uses a short timestamp tolerance.
   const age = Math.abs(Math.floor(Date.now() / 1000) - timestamp);
 
-  if (age > 5) {
+  if (age > 300) {
     return false;
   }
 
@@ -1009,14 +1009,13 @@ app.post(
         });
       }
 
-      const prompt = String(
-        req.body?.prompt || ''
-      ).trim();
+      const prompt = String(req.body?.prompt || '').trim();
 
-      if (!prompt) {
+      // Clothing mode uses the second uploaded image as the clothing source;
+      // a manually typed prompt is optional in this mode.
+      if (!prompt && !clothingMode) {
         return res.status(400).json({
-          error:
-            'Напиши, что изменить на фото.'
+          error: 'Напиши, что изменить на фото.'
         });
       }
 
@@ -1070,34 +1069,32 @@ app.post(
 
       let data;
 
-      // Replicate FileOutput normally exposes blob().
-      if (typeof output.blob === 'function') {
-        const blob = await output.blob();
-        data = Buffer.from(
-          await blob.arrayBuffer()
-        );
-      } else if (typeof output === 'string') {
-        const imageResponse = await fetch(output);
+      // Some Replicate models return one file; others return an array.
+      // Always use the first generated image, never return a collage/list.
+      const imageOutput = Array.isArray(output) ? output[0] : output;
+      if (!imageOutput) {
+        throw new Error('Модель не вернула изображение.');
+      }
 
+      if (typeof imageOutput.blob === 'function') {
+        const blob = await imageOutput.blob();
+        data = Buffer.from(await blob.arrayBuffer());
+      } else if (typeof imageOutput === 'string') {
+        const imageResponse = await fetch(imageOutput);
         if (!imageResponse.ok) {
-          throw new Error(
-            'Не удалось получить изображение от Replicate.'
-          );
+          throw new Error('Не удалось получить изображение от Replicate.');
         }
-
-        data = Buffer.from(
-          await imageResponse.arrayBuffer()
-        );
-      } else if (
-        typeof output.arrayBuffer === 'function'
-      ) {
-        data = Buffer.from(
-          await output.arrayBuffer()
-        );
+        data = Buffer.from(await imageResponse.arrayBuffer());
+      } else if (typeof imageOutput.arrayBuffer === 'function') {
+        data = Buffer.from(await imageOutput.arrayBuffer());
+      } else if (typeof imageOutput.url === 'function') {
+        const imageResponse = await fetch(imageOutput.url());
+        if (!imageResponse.ok) {
+          throw new Error('Не удалось получить изображение от Replicate.');
+        }
+        data = Buffer.from(await imageResponse.arrayBuffer());
       } else {
-        throw new Error(
-          'Неизвестный формат ответа Replicate.'
-        );
+        throw new Error('Неизвестный формат ответа Replicate.');
       }
 
       if (!data?.length) {
