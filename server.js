@@ -699,8 +699,36 @@ app.post(
 // ============================================================
 
 app.use(express.json({ limit: '2mb' }));
-app.use(express.static(path.join(process.cwd(), 'public')));
-app.use(express.static('.'));
+
+// Serve the intended full Lamba interface explicitly.
+// Keep API routes above this point; never let the old public/index.html
+// silently become the homepage when the versioned HTML file is present.
+const publicDir = path.join(process.cwd(), 'public');
+const fullLambaHtml = path.join(publicDir, 'Lamba_Image_Studio_v03_index.html');
+
+app.use('/public', express.static(publicDir));
+
+// Explicit homepage route must be registered before any generic static middleware.
+app.get('/', (_req, res) => {
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.set('Pragma', 'no-cache');
+  res.set('Expires', '0');
+  res.sendFile(fullLambaHtml, err => {
+    if (err) {
+      console.error('Unable to serve full Lamba HTML:', err);
+      if (!res.headersSent) {
+        res.status(500).send(
+          'Не найден файл public/Lamba_Image_Studio_v03_index.html. Проверь имя файла и папку public в GitHub.'
+        );
+      }
+    }
+  });
+});
+
+// Keep other static assets available, but do not use static middleware
+// as the handler for the homepage.
+app.use(express.static(publicDir, { index: false }));
+app.use(express.static('.', { index: false }));
 
 // ============================================================
 // Health
