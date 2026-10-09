@@ -165,8 +165,9 @@ async function supabaseRequest(path, options = {}) {
 // Supabase data access
 // Tables used:
 //
-// Supabase Auth
-//   auth.users -> id uuid, email text
+// public.profiles
+//   id uuid
+//   email text
 //
 // public.user_credits
 //   user_id uuid
@@ -178,45 +179,23 @@ async function supabaseRequest(path, options = {}) {
 //   amount numeric
 //   currency text
 //
-// Existing credits in user_credits are left untouched.
+// The 94 credits already stored in user_credits are left untouched.
 // ============================================================
 
-// Find the real Lamba user in Supabase Auth.
-// Do NOT query public.profiles: the current database does not expose
-// the profiles.email column used by the old implementation.
-async function findUserByEmail(email) {
+async function findProfileByEmail(email) {
   const normalized = normalizeEmail(email);
   if (!normalized) return null;
 
-  const perPage = 1000;
+  const query =
+    `/rest/v1/profiles?select=id,email` +
+    `&email=eq.${encodeURIComponent(normalized)}` +
+    `&limit=1`;
 
-  for (let page = 1; page <= 10; page++) {
-    const rows = await supabaseRequest(
-      `/auth/v1/admin/users?page=${page}&per_page=${perPage}`,
-      { method: 'GET' }
-    );
+  const rows = await supabaseRequest(query, {
+    method: 'GET'
+  });
 
-    const users = Array.isArray(rows)
-      ? rows
-      : Array.isArray(rows?.users)
-        ? rows.users
-        : [];
-
-    const user = users.find(
-      candidate => normalizeEmail(candidate?.email) === normalized
-    );
-
-    if (user) {
-      return {
-        id: user.id,
-        email: normalizeEmail(user.email)
-      };
-    }
-
-    if (users.length < perPage) break;
-  }
-
-  return null;
+  return Array.isArray(rows) && rows.length ? rows[0] : null;
 }
 
 async function getCreditsByUserId(userId) {
@@ -590,7 +569,7 @@ app.post(
         }
 
         if (!userId && email) {
-          const profile = await findUserByEmail(email);
+          const profile = await findProfileByEmail(email);
           userId = profile?.id || '';
         }
 
@@ -756,7 +735,7 @@ app.post('/api/payment/create', async (req, res) => {
     }
 
     // The payment must belong to an existing Lamba user.
-    const profile = await findUserByEmail(email);
+    const profile = await findProfileByEmail(email);
 
     if (!profile?.id || !isUuid(profile.id)) {
       return res.status(404).json({
@@ -890,7 +869,7 @@ app.get('/api/credits', async (req, res) => {
       });
     }
 
-    const profile = await findUserByEmail(email);
+    const profile = await findProfileByEmail(email);
 
     if (!profile?.id) {
       return res.status(404).json({
@@ -972,7 +951,7 @@ app.post(
         });
       }
 
-      const profile = await findUserByEmail(email);
+      const profile = await findProfileByEmail(email);
 
       if (!profile?.id || !isUuid(profile.id)) {
         return res.status(404).json({
@@ -1010,15 +989,15 @@ app.post(
             {
               input: {
                 prompt: [
-                  'STRICT CLOTHING-TRANSFER TASK. Produce exactly ONE finished photograph based on the FIRST image.',
-                  'The FIRST image is the only base image and the only person who may appear in the result.',
-                  'The SECOND image is a clothing reference only. Do not reproduce, insert, paste, blend, or show the second photograph, its background, or any person from it.',
-                  'Copy ONLY the yellow dress from the SECOND image and dress the person in the FIRST image in that same yellow dress.',
-                  'The result must contain one person at most, one photograph, and no collage, split-screen, side-by-side layout, inset, duplicate person, or extra image.',
-                  'Preserve the first image person exactly: face, hair, body, proportions, pose, hands, age appearance, skin, lighting, camera framing, and background.',
-                  'Change only the clothing needed to put the yellow dress on the person in the first image. Do not create a white dress or substitute another color or outfit.',
-                  'Use the second image only to identify the dress design and yellow color; ignore everything else visible in that image.',
-                  'Additional user instruction, only if consistent with all rules above: ' + prompt
+                  'Use the FIRST image as the base photo of the person.',
+                  'Use the SECOND image ONLY as the clothing reference.',
+                  'Transfer the clothing from the second image onto the person in the first image.',
+                  'Transfer the complete visible outfit, including top and bottom clothing when present.',
+                  'Do not place, paste, collage, or show the second image itself in the result.',
+                  'Keep the person from the first image unchanged: face, hair, body, proportions, age appearance, pose, skin, lighting, and background.',
+                  'Change only the clothing. Do not change the person or the scene.',
+                  'Do not use a textual description as the source of the clothing; the second image is the clothing source.',
+                  prompt
                 ].join(' '),
                 input_image_1: mainFile.buffer,
                 input_image_2: clothingFile.buffer,
