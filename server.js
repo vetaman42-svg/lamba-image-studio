@@ -699,36 +699,8 @@ app.post(
 // ============================================================
 
 app.use(express.json({ limit: '2mb' }));
-
-// Serve the intended full Lamba interface explicitly.
-// Keep API routes above this point; never let the old public/index.html
-// silently become the homepage when the versioned HTML file is present.
-const publicDir = path.join(process.cwd(), 'public');
-const fullLambaHtml = path.join(publicDir, 'Lamba_Image_Studio_v03_index.html');
-
-app.use('/public', express.static(publicDir));
-
-// Explicit homepage route must be registered before any generic static middleware.
-app.get('/', (_req, res) => {
-  res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
-  res.set('Pragma', 'no-cache');
-  res.set('Expires', '0');
-  res.sendFile(fullLambaHtml, err => {
-    if (err) {
-      console.error('Unable to serve full Lamba HTML:', err);
-      if (!res.headersSent) {
-        res.status(500).send(
-          'Не найден файл public/Lamba_Image_Studio_v03_index.html. Проверь имя файла и папку public в GitHub.'
-        );
-      }
-    }
-  });
-});
-
-// Keep other static assets available, but do not use static middleware
-// as the handler for the homepage.
-app.use(express.static(publicDir, { index: false }));
-app.use(express.static('.', { index: false }));
+app.use(express.static(path.join(process.cwd(), 'public')));
+app.use(express.static('.'));
 
 // ============================================================
 // Health
@@ -1038,15 +1010,15 @@ app.post(
             {
               input: {
                 prompt: [
-                  'Use the FIRST image as the base photo of the person.',
-                  'Use the SECOND image ONLY as the clothing reference.',
-                  'Transfer the clothing from the second image onto the person in the first image.',
-                  'Transfer the complete visible outfit, including top and bottom clothing when present.',
-                  'Do not place, paste, collage, or show the second image itself in the result.',
-                  'Keep the person from the first image unchanged: face, hair, body, proportions, age appearance, pose, skin, lighting, and background.',
-                  'Change only the clothing. Do not change the person or the scene.',
-                  'Do not use a textual description as the source of the clothing; the second image is the clothing source.',
-                  prompt
+                  'STRICT CLOTHING-TRANSFER TASK. Produce exactly ONE finished photograph based on the FIRST image.',
+                  'The FIRST image is the only base image and the only person who may appear in the result.',
+                  'The SECOND image is a clothing reference only. Do not reproduce, insert, paste, blend, or show the second photograph, its background, or any person from it.',
+                  'Copy ONLY the yellow dress from the SECOND image and dress the person in the FIRST image in that same yellow dress.',
+                  'The result must contain one person at most, one photograph, and no collage, split-screen, side-by-side layout, inset, duplicate person, or extra image.',
+                  'Preserve the first image person exactly: face, hair, body, proportions, pose, hands, age appearance, skin, lighting, camera framing, and background.',
+                  'Change only the clothing needed to put the yellow dress on the person in the first image. Do not create a white dress or substitute another color or outfit.',
+                  'Use the second image only to identify the dress design and yellow color; ignore everything else visible in that image.',
+                  'Additional user instruction, only if consistent with all rules above: ' + prompt
                 ].join(' '),
                 input_image_1: mainFile.buffer,
                 input_image_2: clothingFile.buffer,
