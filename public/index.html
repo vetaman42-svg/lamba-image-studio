@@ -1,4 +1,165 @@
-<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Lamba Image Studio</title>
-<style>body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#111;color:#fff;margin:0;padding:24px}main{max-width:700px;margin:auto}h1{margin-top:0}.box{background:#1b1b1b;border-radius:18px;padding:18px;margin:14px 0}input,textarea,button{width:100%;box-sizing:border-box;font:inherit;border-radius:12px;padding:13px;margin-top:10px}textarea{min-height:90px}button{background:#fff;color:#111;border:0;font-weight:700}button:disabled{opacity:.5}img{max-width:100%;border-radius:14px;margin-top:12px}.status{white-space:pre-wrap;color:#bbb}.previewWrap{margin-top:14px}.previewTitle{color:#bbb;font-size:14px;margin-bottom:8px}#preview{display:block;width:100%;max-height:520px;object-fit:contain;background:#000;margin-top:0;border-radius:14px}</style></head>
-<body><main><h1>Lamba Image Studio</h1><div class="box"><label>1. Выбери фото</label><input id="image" type="file" accept="image/jpeg,image/png,image/webp"><div id="previewWrap" class="previewWrap" hidden><div class="previewTitle">Выбранное фото</div><img id="preview" alt="Предпросмотр выбранного фото"></div></div><div class="box"><label>2. Что изменить</label><textarea id="prompt" placeholder="Например: измени цвет платья на красный, лицо и волосы оставь без изменений"></textarea><button id="go">Сгенерировать</button><div id="status" class="status"></div></div><div class="box"><b>Результат</b><div id="result"></div></div></main>
-<script>const image=document.querySelector('#image'),preview=document.querySelector('#preview'),previewWrap=document.querySelector('#previewWrap'),prompt=document.querySelector('#prompt'),go=document.querySelector('#go'),status=document.querySelector('#status'),result=document.querySelector('#result');let previewUrl='';image.addEventListener('change',()=>{const file=image.files[0];if(previewUrl)URL.revokeObjectURL(previewUrl);if(!file){previewWrap.hidden=true;preview.removeAttribute('src');return}previewUrl=URL.createObjectURL(file);preview.src=previewUrl;previewWrap.hidden=false;status.textContent='Фото выбрано.'});go.onclick=async()=>{if(!image.files[0])return status.textContent='Сначала выбери фото.';if(!prompt.value.trim())return status.textContent='Напиши, что изменить.';go.disabled=true;status.textContent='Генерирую…';result.innerHTML='';try{const f=new FormData();f.append('image',image.files[0]);f.append('prompt',prompt.value.trim());const r=await fetch('/api/generate',{method:'POST',body:f});if(!r.ok){let e={};try{e=await r.json()}catch{}throw new Error(e.error||`Ошибка сервера: ${r.status}`)}const blob=await r.blob();const url=URL.createObjectURL(blob);result.innerHTML=`<img src="${url}" alt="Результат">`;status.textContent='Готово.'}catch(e){status.textContent=e.message}finally{go.disabled=false}};</script></body></html>
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Lamba Image Studio</title>
+<style>
+:root{color-scheme:dark}
+*{box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#101114;color:#f7f7f8;margin:0;padding:18px}
+main{max-width:760px;margin:auto}
+h1{margin:0 0 6px;font-size:28px}
+.sub{color:#aaaeb8;margin:0 0 20px}
+.box{background:#1b1d22;border:1px solid #30323a;border-radius:18px;padding:17px;margin:14px 0}
+label{display:block;font-weight:650;margin-bottom:7px}
+input[type=file],textarea,button,select{width:100%;font:inherit;border-radius:12px;padding:12px;margin-top:8px}
+input[type=file]{background:#111318;border:1px solid #383b45;color:#ddd}
+textarea{min-height:100px;background:#111318;border:1px solid #383b45;color:#fff;resize:vertical}
+.modeRow{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:12px}
+.mode{background:#292c34;color:#e8e9ed;border:1px solid #41444f;padding:12px 8px}
+.mode.active{background:#f4f4f5;color:#111;border-color:#f4f4f5}
+button{border:0;font-weight:750;cursor:pointer}
+button:disabled{opacity:.5;cursor:wait}
+.primary{background:#f5f5f5;color:#111}
+.secondary{background:#292c34;color:#eee;border:1px solid #41444f}
+.status{white-space:pre-wrap;color:#c3c6cf;margin-top:12px;line-height:1.45}
+.previewGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:12px}
+.previewCard{min-width:0;background:#111318;border-radius:12px;padding:10px;color:#bfc2cb;font-size:13px}
+.previewCard img{display:block;width:100%;max-height:300px;object-fit:contain;margin-top:8px;border-radius:8px}
+.resultImg{display:block;max-width:100%;max-height:650px;object-fit:contain;margin:12px auto 0;border-radius:12px}
+.note{color:#aeb2bd;font-size:13px;line-height:1.45;margin:8px 0 0}
+[hidden]{display:none!important}
+@media(max-width:480px){body{padding:12px}.box{padding:14px}.previewGrid{grid-template-columns:1fr}.modeRow{grid-template-columns:1fr 1fr}h1{font-size:24px}}
+</style>
+</head>
+<body>
+<main>
+  <h1>Lamba Image Studio</h1>
+  <p class="sub">Редактирование фотографий</p>
+
+  <div class="box">
+    <label>Режим работы</label>
+    <div class="modeRow">
+      <button type="button" id="normalMode" class="mode active">Обычное редактирование</button>
+      <button type="button" id="clothesMode" class="mode">Смена одежды</button>
+    </div>
+    <p class="note" id="modeNote">Загрузи фотографию и напиши, что нужно изменить.</p>
+  </div>
+
+  <div class="box">
+    <label for="image">1. Основная фотография — человек, которого сохраняем</label>
+    <input id="image" type="file" accept="image/jpeg,image/png,image/webp">
+    <div class="previewGrid">
+      <div class="previewCard">Основная фотография<img id="preview" alt="Предпросмотр основной фотографии" hidden></div>
+      <div class="previewCard" id="clothesPreviewCard" hidden>Фото-образец одежды<img id="clothesPreview" alt="Предпросмотр одежды" hidden></div>
+    </div>
+  </div>
+
+  <div class="box" id="clothesBox" hidden>
+    <label for="clothingImage">2. Фотография, с которой берём одежду</label>
+    <input id="clothingImage" type="file" accept="image/jpeg,image/png,image/webp">
+    <p class="note">На второй фотографии выбирается только одежда. Лицо, фигура, пропорции, поза и фон основной фотографии должны сохраниться.</p>
+  </div>
+
+  <div class="box">
+    <label for="prompt">Что нужно сделать</label>
+    <textarea id="prompt" placeholder="Например: надень на человека с первой фотографии жёлтое платье со второй фотографии. Сохрани лицо, волосы, фигуру, пропорции, позу и фон первой фотографии."></textarea>
+    <button id="go" class="primary">Сгенерировать</button>
+    <div id="status" class="status" role="status" aria-live="polite"></div>
+  </div>
+
+  <div class="box">
+    <b>Результат</b>
+    <div id="result"></div>
+    <button type="button" id="save" class="secondary" hidden>Сохранить результат</button>
+  </div>
+</main>
+<script>
+const image=document.querySelector('#image');
+const clothingImage=document.querySelector('#clothingImage');
+const preview=document.querySelector('#preview');
+const clothesPreview=document.querySelector('#clothesPreview');
+const clothesPreviewCard=document.querySelector('#clothesPreviewCard');
+const clothesBox=document.querySelector('#clothesBox');
+const normalMode=document.querySelector('#normalMode');
+const clothesMode=document.querySelector('#clothesMode');
+const modeNote=document.querySelector('#modeNote');
+const prompt=document.querySelector('#prompt');
+const go=document.querySelector('#go');
+const status=document.querySelector('#status');
+const result=document.querySelector('#result');
+const save=document.querySelector('#save');
+let mode='normal', primaryUrl='', clothingUrl='', resultUrl='';
+
+function setMode(next){
+  mode=next;
+  const isClothes=mode==='clothes';
+  normalMode.classList.toggle('active',!isClothes);
+  clothesMode.classList.toggle('active',isClothes);
+  clothesBox.hidden=!isClothes;
+  clothesPreviewCard.hidden=!isClothes;
+  modeNote.textContent=isClothes
+    ? 'Первая фотография — человек и сцена. Вторая — только источник одежды.'
+    : 'Загрузи фотографию и напиши, что нужно изменить.';
+  prompt.placeholder=isClothes
+    ? 'Например: надень на человека с первой фотографии жёлтое платье со второй фотографии. Сохрани лицо, волосы, фигуру, пропорции, позу и фон первой фотографии.'
+    : 'Например: измени цвет платья на красный, лицо и волосы оставь без изменений.';
+  status.textContent='';
+}
+normalMode.addEventListener('click',()=>setMode('normal'));
+clothesMode.addEventListener('click',()=>setMode('clothes'));
+
+image.addEventListener('change',()=>{
+  const file=image.files[0];
+  if(primaryUrl)URL.revokeObjectURL(primaryUrl);
+  if(!file){preview.hidden=true;preview.removeAttribute('src');return;}
+  primaryUrl=URL.createObjectURL(file);
+  preview.src=primaryUrl;preview.hidden=false;status.textContent='Основная фотография выбрана.';
+});
+clothingImage.addEventListener('change',()=>{
+  const file=clothingImage.files[0];
+  if(clothingUrl)URL.revokeObjectURL(clothingUrl);
+  if(!file){clothesPreview.hidden=true;clothesPreview.removeAttribute('src');return;}
+  clothingUrl=URL.createObjectURL(file);
+  clothesPreview.src=clothingUrl;clothesPreview.hidden=false;status.textContent='Фотография одежды выбрана.';
+});
+
+go.addEventListener('click',async()=>{
+  if(!image.files[0]){status.textContent='Сначала выбери основную фотографию.';return;}
+  if(mode==='clothes'&&!clothingImage.files[0]){status.textContent='Для смены одежды добавь вторую фотографию — источник одежды.';return;}
+  if(!prompt.value.trim()){status.textContent='Напиши, что нужно сделать.';return;}
+  go.disabled=true;status.textContent='Генерирую…';result.replaceChildren();save.hidden=true;
+  if(resultUrl){URL.revokeObjectURL(resultUrl);resultUrl='';}
+  try{
+    const f=new FormData();
+    f.append('image',image.files[0]);
+    f.append('prompt',prompt.value.trim());
+    if(mode==='clothes'){
+      // The server endpoint must explicitly accept this second upload field.
+      f.append('clothingImage',clothingImage.files[0]);
+      f.append('mode','clothes');
+    }
+    const r=await fetch('/api/generate',{method:'POST',body:f});
+    if(!r.ok){
+      let e={};try{e=await r.json();}catch{}
+      if(mode==='clothes'&&r.status===500){
+        throw new Error((e.error||'Сервер не смог обработать запрос.')+' Если обычное редактирование работает, серверный /api/generate нужно отдельно настроить на приём поля clothingImage.');
+      }
+      throw new Error(e.error||`Ошибка сервера: ${r.status}`);
+    }
+    const blob=await r.blob();
+    resultUrl=URL.createObjectURL(blob);
+    const img=document.createElement('img');img.className='resultImg';img.alt='Результат генерации';img.src=resultUrl;
+    result.appendChild(img);save.hidden=false;status.textContent='Готово.';
+  }catch(e){status.textContent=e.message||'Не удалось выполнить запрос.';}
+  finally{go.disabled=false;}
+});
+save.addEventListener('click',()=>{
+  if(!resultUrl)return;
+  const a=document.createElement('a');a.href=resultUrl;a.download='lamba-result.png';
+  document.body.appendChild(a);a.click();a.remove();
+});
+</script>
+</body>
+</html>
