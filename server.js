@@ -2,6 +2,7 @@ import express from 'express';
 import multer from 'multer';
 import Replicate from 'replicate';
 import crypto from 'crypto';
+import path from 'node:path';
 
 const app = express();
 const upload = multer({ limits: { fileSize: 20 * 1024 * 1024 } });
@@ -164,9 +165,8 @@ async function supabaseRequest(path, options = {}) {
 // Supabase data access
 // Tables used:
 //
-// public.profiles
-//   id uuid
-//   email text
+// Supabase Auth
+//   auth.users -> id uuid, email text
 //
 // public.user_credits
 //   user_id uuid
@@ -178,23 +178,45 @@ async function supabaseRequest(path, options = {}) {
 //   amount numeric
 //   currency text
 //
-// The 94 credits already stored in user_credits are left untouched.
+// Existing credits in user_credits are left untouched.
 // ============================================================
 
-async function findProfileByEmail(email) {
+// Find the real Lamba user in Supabase Auth.
+// Do NOT query public.profiles: the current database does not expose
+// the profiles.email column used by the old implementation.
+async function findUserByEmail(email) {
   const normalized = normalizeEmail(email);
   if (!normalized) return null;
 
-  const query =
-    `/rest/v1/profiles?select=id,email` +
-    `&email=eq.${encodeURIComponent(normalized)}` +
-    `&limit=1`;
+  const perPage = 1000;
 
-  const rows = await supabaseRequest(query, {
-    method: 'GET'
-  });
+  for (let page = 1; page <= 10; page++) {
+    const rows = await supabaseRequest(
+      `/auth/v1/admin/users?page=${page}&per_page=${perPage}`,
+      { method: 'GET' }
+    );
 
-  return Array.isArray(rows) && rows.length ? rows[0] : null;
+    const users = Array.isArray(rows)
+      ? rows
+      : Array.isArray(rows?.users)
+        ? rows.users
+        : [];
+
+    const user = users.find(
+      candidate => normalizeEmail(candidate?.email) === normalized
+    );
+
+    if (user) {
+      return {
+        id: user.id,
+        email: normalizeEmail(user.email)
+      };
+    }
+
+    if (users.length < perPage) break;
+  }
+
+  return null;
 }
 
 async function getCreditsByUserId(userId) {
@@ -568,7 +590,7 @@ app.post(
         }
 
         if (!userId && email) {
-          const profile = await findProfileByEmail(email);
+          const profile = await findUserByEmail(email);
           userId = profile?.id || '';
         }
 
@@ -734,7 +756,7 @@ app.post('/api/payment/create', async (req, res) => {
     }
 
     // The payment must belong to an existing Lamba user.
-    const profile = await findProfileByEmail(email);
+    const profile = await findUserByEmail(email);
 
     if (!profile?.id || !isUuid(profile.id)) {
       return res.status(404).json({
@@ -868,7 +890,7 @@ app.get('/api/credits', async (req, res) => {
       });
     }
 
-    const profile = await findProfileByEmail(email);
+    const profile = await findUserByEmail(email);
 
     if (!profile?.id) {
       return res.status(404).json({
@@ -913,7 +935,10 @@ app.get('/api/credits', async (req, res) => {
 
 app.post(
   '/api/generate',
-  upload.single('image'),
+  upload.fields([
+    { name: 'image', maxCount: 1 },
+    { name: 'clothing_image', maxCount: 1 }
+  ]),
   async (req, res) => {
     try {
       if (!TOKEN || !replicate) {
@@ -923,9 +948,19 @@ app.post(
         });
       }
 
-      if (!req.file) {
+      const mainFile = req.files?.image?.[0] || null;
+      const clothingFile = req.files?.clothing_image?.[0] || null;
+      const clothingMode = String(req.body?.mode || '').trim() === 'clothing_change';
+
+      if (!mainFile) {
         return res.status(400).json({
-          error: 'Фото не загружено.'
+          error: 'Фото человека не загружено.'
+        });
+      }
+
+      if (clothingMode && !clothingFile) {
+        return res.status(400).json({
+          error: 'Фото одежды не загружено.'
         });
       }
 
@@ -937,7 +972,7 @@ app.post(
         });
       }
 
-      const profile = await findProfileByEmail(email);
+      const profile = await findUserByEmail(email);
 
       if (!profile?.id || !isUuid(profile.id)) {
         return res.status(404).json({
@@ -966,20 +1001,46 @@ app.post(
       }
 
       // -------------------- Replicate --------------------
-
-      const output = await replicate.run(
-        'black-forest-labs/flux-kontext-pro',
-        {
-          input: {
-            prompt,
-            input_image: req.file.buffer,
-            aspect_ratio: 'match_input_image',
-            output_format: 'jpg',
-            safety_tolerance: 2,
-            prompt_upsampling: false
-          }
-        }
-      );
+      // Normal generation keeps the existing FLUX Kontext Pro path.
+      // Clothing change uses the official two-image Kontext model:
+      // image 1 = person, image 2 = clothing reference.
+      const output = clothingMode
+        ? await replicate.run(
+            'flux-kontext-apps/multi-image-kontext-pro',
+            {
+              input: {
+                prompt: [
+                  'Use the FIRST image as the base photo of the person.',
+                  'Use the SECOND image ONLY as the clothing reference.',
+                  'Transfer the clothing from the second image onto the person in the first image.',
+                  'Transfer the complete visible outfit, including top and bottom clothing when present.',
+                  'Do not place, paste, collage, or show the second image itself in the result.',
+                  'Keep the person from the first image unchanged: face, hair, body, proportions, age appearance, pose, skin, lighting, and background.',
+                  'Change only the clothing. Do not change the person or the scene.',
+                  'Do not use a textual description as the source of the clothing; the second image is the clothing source.',
+                  prompt
+                ].join(' '),
+                input_image_1: mainFile.buffer,
+                input_image_2: clothingFile.buffer,
+                aspect_ratio: 'match_input_image',
+                output_format: 'jpg',
+                safety_tolerance: 2
+              }
+            }
+          )
+        : await replicate.run(
+            'black-forest-labs/flux-kontext-pro',
+            {
+              input: {
+                prompt,
+                input_image: mainFile.buffer,
+                aspect_ratio: 'match_input_image',
+                output_format: 'jpg',
+                safety_tolerance: 2,
+                prompt_upsampling: false
+              }
+            }
+          );
 
       if (!output) {
         throw new Error(
